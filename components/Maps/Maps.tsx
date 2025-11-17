@@ -29,10 +29,79 @@ export default function Maps({ isAdmin = false }: MapsProps) {
     const [drawingCenter, setDrawingCenter] = useState<number[] | null>(null);
     const [drawingRadius, setDrawingRadius] = useState<number>(0);
     const [drawingPoints, setDrawingPoints] = useState<number[][]>([]);
+    const wsRef = useRef<WebSocket | null>(null);
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
+
+    // Load zones from database on mount
+    useEffect(() => {
+        fetch('/api/zones')
+            .then(res => res.json())
+            .then(data => {
+                if (data.zones) {
+                    setZones(data.zones);
+                }
+            })
+            .catch(err => console.error('Failed to load zones:', err));
+    }, []);
+
+    // Setup WebSocket connection for real-time updates
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+        
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+            console.log('WebSocket connected');
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                
+                if (message.type === 'zone_created') {
+                    setZones(prev => [...prev, message.zone]);
+                } else if (message.type === 'zone_updated') {
+                    setZones(prev => prev.map(z => z.id === message.zone.id ? message.zone : z));
+                } else if (message.type === 'zone_deleted') {
+                    setZones(prev => prev.filter(z => z.id !== message.zoneId));
+                } else if (message.type === 'zones_cleared') {
+                    setZones([]);
+                } else if (message.type === 'sensor_data') {
+                    console.log('Sensor data received:', message.data);
+                } else if (message.type === 'prediction') {
+                    console.log('Prediction received:', message.prediction);
+                }
+            } catch (error) {
+                console.error('Failed to parse WebSocket message:', error);
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+
+        ws.onclose = () => {
+            console.log('WebSocket disconnected');
+        };
+
+        return () => {
+            ws.close();
+        };
+    }, []);
+
+    // Update map when zones change
+    useEffect(() => {
+        if (map && zones.length > 0) {
+            updateZonesOnMap(zones);
+        }
+    }, [zones, map]);
 
     useEffect(() => {
         if (!isMounted || !mapContainerRef.current || map) return;
@@ -165,8 +234,22 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                         radius: finalRadius
                     };
 
-                    setZones(prev => [...prev, newZone]);
-                    updateZonesOnMap([...zones, newZone]);
+                    // Save to database
+                    fetch('/api/zones', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newZone)
+                    }).then(() => {
+                        setZones(prev => [...prev, newZone]);
+                        // Broadcast to WebSocket
+                        if (wsRef.current?.readyState === WebSocket.OPEN) {
+                            wsRef.current.send(JSON.stringify({
+                                type: 'zone_created',
+                                zone: newZone
+                            }));
+                        }
+                    }).catch(err => console.error('Failed to save zone:', err));
+
                     cancelDrawing();
                 }
             } else {
@@ -202,8 +285,22 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     coordinates: linePoints
                 };
 
-                setZones(prev => [...prev, newZone]);
-                updateZonesOnMap([...zones, newZone]);
+                // Save to database
+                fetch('/api/zones', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newZone)
+                }).then(() => {
+                    setZones(prev => [...prev, newZone]);
+                    // Broadcast to WebSocket
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                        wsRef.current.send(JSON.stringify({
+                            type: 'zone_created',
+                            zone: newZone
+                        }));
+                    }
+                }).catch(err => console.error('Failed to save zone:', err));
+
                 cancelDrawing();
             }
         };
@@ -217,8 +314,22 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     coordinates: linePoints
                 };
 
-                setZones(prev => [...prev, newZone]);
-                updateZonesOnMap([...zones, newZone]);
+                // Save to database
+                fetch('/api/zones', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(newZone)
+                }).then(() => {
+                    setZones(prev => [...prev, newZone]);
+                    // Broadcast to WebSocket
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                        wsRef.current.send(JSON.stringify({
+                            type: 'zone_created',
+                            zone: newZone
+                        }));
+                    }
+                }).catch(err => console.error('Failed to save zone:', err));
+
                 cancelDrawing();
             }
         };
@@ -442,8 +553,18 @@ export default function Maps({ isAdmin = false }: MapsProps) {
 
     const handleClearZones = () => {
         if (confirm('Are you sure you want to clear all zones?')) {
-            setZones([]);
-            updateZonesOnMap([]);
+            fetch('/api/zones', { method: 'DELETE' })
+                .then(() => {
+                    setZones([]);
+                    updateZonesOnMap([]);
+                    // Broadcast to WebSocket
+                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                        wsRef.current.send(JSON.stringify({
+                            type: 'zones_cleared'
+                        }));
+                    }
+                })
+                .catch(err => console.error('Failed to clear zones:', err));
         }
     };
 
