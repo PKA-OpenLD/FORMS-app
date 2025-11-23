@@ -12,6 +12,8 @@ interface Zone {
     radius?: number; // in meters for circles (zones)
     coordinates?: number[][]; // for lines (routes/paths)
     riskLevel?: number;
+    title?: string;
+    description?: string;
 }
 
 interface MapsProps {
@@ -30,6 +32,11 @@ export default function Maps({ isAdmin = false }: MapsProps) {
     const [drawingRadius, setDrawingRadius] = useState<number>(0);
     const [drawingPoints, setDrawingPoints] = useState<number[][]>([]);
     const wsRef = useRef<WebSocket | null>(null);
+    const [hoveredZone, setHoveredZone] = useState<Zone | null>(null);
+    const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
+    const [showTitleDialog, setShowTitleDialog] = useState(false);
+    const [pendingZone, setPendingZone] = useState<Zone | null>(null);
+    const [zoneForm, setZoneForm] = useState({ title: '', description: '' });
 
     useEffect(() => {
         setIsMounted(true);
@@ -207,6 +214,69 @@ export default function Maps({ isAdmin = false }: MapsProps) {
         };
     }, [isMounted]);
 
+    // Add hover interactions
+    useEffect(() => {
+        if (!map) return;
+
+        const handleFloodHover = (e: any) => {
+            map.getCanvas().style.cursor = 'pointer';
+            if (e.features && e.features.length > 0) {
+                const feature = e.features[0];
+                const zone = zones.find(z => z.id === feature.properties.id);
+                if (zone) {
+                    setHoveredZone(zone);
+                    setPopupPosition({ x: e.point.x, y: e.point.y });
+                }
+            }
+        };
+
+        const handleOutageHover = (e: any) => {
+            map.getCanvas().style.cursor = 'pointer';
+            if (e.features && e.features.length > 0) {
+                const feature = e.features[0];
+                const zone = zones.find(z => z.id === feature.properties.id);
+                if (zone) {
+                    setHoveredZone(zone);
+                    setPopupPosition({ x: e.point.x, y: e.point.y });
+                }
+            }
+        };
+
+        const handleLineHover = (e: any) => {
+            map.getCanvas().style.cursor = 'pointer';
+            if (e.features && e.features.length > 0) {
+                const feature = e.features[0];
+                const zone = zones.find(z => z.id === feature.properties.id);
+                if (zone) {
+                    setHoveredZone(zone);
+                    setPopupPosition({ x: e.point.x, y: e.point.y });
+                }
+            }
+        };
+
+        const handleLeave = () => {
+            map.getCanvas().style.cursor = '';
+            setHoveredZone(null);
+            setPopupPosition(null);
+        };
+
+        map.on('mousemove', 'flood-zones', handleFloodHover);
+        map.on('mousemove', 'outage-zones', handleOutageHover);
+        map.on('mousemove', 'zones-lines', handleLineHover);
+        map.on('mouseleave', 'flood-zones', handleLeave);
+        map.on('mouseleave', 'outage-zones', handleLeave);
+        map.on('mouseleave', 'zones-lines', handleLeave);
+
+        return () => {
+            map.off('mousemove', 'flood-zones', handleFloodHover);
+            map.off('mousemove', 'outage-zones', handleOutageHover);
+            map.off('mousemove', 'zones-lines', handleLineHover);
+            map.off('mouseleave', 'flood-zones', handleLeave);
+            map.off('mouseleave', 'outage-zones', handleLeave);
+            map.off('mouseleave', 'zones-lines', handleLeave);
+        };
+    }, [map, zones]);
+
     // Handle zone drawing
     useEffect(() => {
         if (!map || !isDrawing) return;
@@ -234,22 +304,7 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                         radius: finalRadius
                     };
 
-                    // Save to database
-                    fetch('/api/zones', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(newZone)
-                    }).then(() => {
-                        setZones(prev => [...prev, newZone]);
-                        // Broadcast to WebSocket
-                        if (wsRef.current?.readyState === WebSocket.OPEN) {
-                            wsRef.current.send(JSON.stringify({
-                                type: 'zone_created',
-                                zone: newZone
-                            }));
-                        }
-                    }).catch(err => console.error('Failed to save zone:', err));
-
+                    saveZoneWithDialog(newZone);
                     cancelDrawing();
                 }
             } else {
@@ -285,22 +340,7 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     coordinates: linePoints
                 };
 
-                // Save to database
-                fetch('/api/zones', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newZone)
-                }).then(() => {
-                    setZones(prev => [...prev, newZone]);
-                    // Broadcast to WebSocket
-                    if (wsRef.current?.readyState === WebSocket.OPEN) {
-                        wsRef.current.send(JSON.stringify({
-                            type: 'zone_created',
-                            zone: newZone
-                        }));
-                    }
-                }).catch(err => console.error('Failed to save zone:', err));
-
+                saveZoneWithDialog(newZone);
                 cancelDrawing();
             }
         };
@@ -314,22 +354,7 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     coordinates: linePoints
                 };
 
-                // Save to database
-                fetch('/api/zones', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newZone)
-                }).then(() => {
-                    setZones(prev => [...prev, newZone]);
-                    // Broadcast to WebSocket
-                    if (wsRef.current?.readyState === WebSocket.OPEN) {
-                        wsRef.current.send(JSON.stringify({
-                            type: 'zone_created',
-                            zone: newZone
-                        }));
-                    }
-                }).catch(err => console.error('Failed to save zone:', err));
-
+                saveZoneWithDialog(newZone);
                 cancelDrawing();
             }
         };
@@ -509,7 +534,9 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                         id: zone.id,
                         type: zone.type,
                         shape: zone.shape,
-                        riskLevel: zone.riskLevel || 50
+                        riskLevel: zone.riskLevel || 50,
+                        title: zone.title || 'Untitled',
+                        description: zone.description || ''
                     }
                 };
             } else if (zone.shape === 'line' && zone.coordinates) {
@@ -523,7 +550,9 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                         id: zone.id,
                         type: zone.type,
                         shape: zone.shape,
-                        riskLevel: zone.riskLevel || 50
+                        riskLevel: zone.riskLevel || 50,
+                        title: zone.title || 'Untitled',
+                        description: zone.description || ''
                     }
                 };
             }
@@ -537,6 +566,62 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 features
             });
         }
+    };
+
+    const saveZoneWithDialog = (zone: Zone) => {
+        setPendingZone(zone);
+        setShowTitleDialog(true);
+    };
+
+    const confirmZoneSave = () => {
+        if (!pendingZone) return;
+        
+        const zoneToSave = {
+            ...pendingZone,
+            title: zoneForm.title || 'Untitled Zone',
+            description: zoneForm.description
+        };
+
+        fetch('/api/zones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(zoneToSave)
+        }).then(() => {
+            setZones(prev => [...prev, zoneToSave]);
+            if (wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(JSON.stringify({
+                    type: 'zone_created',
+                    zone: zoneToSave
+                }));
+            }
+        }).catch(err => console.error('Failed to save zone:', err));
+
+        setShowTitleDialog(false);
+        setPendingZone(null);
+        setZoneForm({ title: '', description: '' });
+    };
+
+    const cancelZoneSave = () => {
+        setShowTitleDialog(false);
+        setPendingZone(null);
+        setZoneForm({ title: '', description: '' });
+    };
+
+    const handleDeleteZone = (zoneId: string) => {
+        if (!confirm('Delete this zone?')) return;
+        
+        fetch(`/api/zones/${zoneId}`, { method: 'DELETE' })
+            .then(() => {
+                setZones(prev => prev.filter(z => z.id !== zoneId));
+                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({
+                        type: 'zone_deleted',
+                        zoneId
+                    }));
+                }
+                setHoveredZone(null);
+            })
+            .catch(err => console.error('Failed to delete zone:', err));
     };
 
     const handleDrawZone = (type: 'flood' | 'outage', shape: 'circle' | 'line') => {
@@ -582,6 +667,97 @@ export default function Maps({ isAdmin = false }: MapsProps) {
     return (
         <>
             <div id="map" ref={mapContainerRef} style={{ width: '100vw', height: '100vh' }} />
+            
+            {/* Hover Popup */}
+            {hoveredZone && popupPosition && (
+                <div 
+                    className="fixed z-50 bg-white rounded-lg shadow-xl p-4 min-w-64 max-w-sm pointer-events-none"
+                    style={{ 
+                        left: `${popupPosition.x + 10}px`, 
+                        top: `${popupPosition.y + 10}px` 
+                    }}
+                >
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                            <h3 className="font-bold text-lg mb-1">{hoveredZone.title || 'Untitled Zone'}</h3>
+                            <p className="text-sm text-gray-600 mb-2">
+                                <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${
+                                    hoveredZone.type === 'flood' 
+                                        ? 'bg-blue-100 text-blue-700' 
+                                        : 'bg-red-100 text-red-700'
+                                }`}>
+                                    {hoveredZone.type === 'flood' ? '🌊 Flood Risk' : '⚡ Outage Risk'}
+                                </span>
+                                <span className="ml-2 text-xs text-gray-500">
+                                    {hoveredZone.shape === 'circle' ? '● Zone' : '━ Route'}
+                                </span>
+                            </p>
+                            {hoveredZone.description && (
+                                <p className="text-sm text-gray-700">{hoveredZone.description}</p>
+                            )}
+                        </div>
+                    </div>
+                    {isAdmin && (
+                        <button
+                            onClick={() => handleDeleteZone(hoveredZone.id)}
+                            className="mt-3 w-full p-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors pointer-events-auto"
+                        >
+                            Delete Zone
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* Title/Description Dialog */}
+            {showTitleDialog && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+                    <div className="bg-white rounded-lg shadow-xl p-6 w-96">
+                        <h3 className="text-xl font-bold mb-4">Add Zone Details</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Title
+                                </label>
+                                <input
+                                    type="text"
+                                    value={zoneForm.title}
+                                    onChange={(e) => setZoneForm({ ...zoneForm, title: e.target.value })}
+                                    placeholder="e.g., Main Street Flood Zone"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    autoFocus
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Description (optional)
+                                </label>
+                                <textarea
+                                    value={zoneForm.description}
+                                    onChange={(e) => setZoneForm({ ...zoneForm, description: e.target.value })}
+                                    placeholder="Add details about this zone..."
+                                    rows={3}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                />
+                            </div>
+                        </div>
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={confirmZoneSave}
+                                className="flex-1 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                            >
+                                Save Zone
+                            </button>
+                            <button
+                                onClick={cancelZoneSave}
+                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isAdmin && (
                 <>
                     <AdminPanel 
