@@ -42,7 +42,7 @@ export const updateZonesOnMap = (zonesData: Zone[], map: vietmapgl.Map) => {
     })
     .filter((f) => f !== null);
 
-  const source = map.getSource("zones") as any;
+  const source = map?.getSource("zones") as any;
   if (source) {
     source.setData({
       type: "FeatureCollection",
@@ -70,7 +70,7 @@ export const updateSensorsOnMap = (
     },
   }));
 
-  const source = map.getSource("sensors") as any;
+  const source = map?.getSource("sensors") as any;
   if (source) {
     source.setData({
       type: "FeatureCollection",
