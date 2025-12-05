@@ -266,26 +266,32 @@ export default function WorkflowEditor({
     })
       .then((res) => res.json())
       .then((data) => {
-        // Add sensor node to canvas
-        const newNode: Node = {
-          id: `sensor-${data.sensor.id}`,
-          type: "sensor",
-          position: { x: 100, y: nodes.length * 120 + 50 },
-          data: {
-            label: data.sensor.name,
-            type: data.sensor.type,
-            threshold: data.sensor.threshold,
-            sensorId: data.sensor.id,
-          },
-        };
-        setNodes((nds) => [...nds, newNode]);
+        console.log("Sensor created response:", data);
+        
+        // Handle response - sensor is returned directly
+        const createdSensor = data.sensor || data;
+        
+        if (!createdSensor || !createdSensor.id) {
+          console.error("Invalid sensor response:", data);
+          alert("Failed to create sensor - invalid response");
+          return;
+        }
 
+        // Notify parent to reload sensors first
+        if (onSensorCreated) {
+          onSensorCreated();
+        }
+
+        // Clean up UI
         setCreatingNewSensor(false);
         setShowSensorForm(false);
         setTempSensorLocation(null);
         setSensorLinePoints([]);
 
-        // Clean up temp marker and line
+        // Clean up temp markers and line
+        tempMarkers.forEach((m) => m.remove());
+        setTempMarkers([]);
+        
         if (tempSensorMarker) {
           tempSensorMarker.remove();
           setTempSensorMarker(null);
@@ -301,11 +307,10 @@ export default function WorkflowEditor({
           threshold: 0,
           actionType: "flood",
         });
-
-        // Notify parent to reload sensors
-        if (onSensorCreated) {
-          onSensorCreated();
-        }
+      })
+      .catch((error) => {
+        console.error("Failed to create sensor:", error);
+        alert("Failed to create sensor - check console for details");
       });
   };
 

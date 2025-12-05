@@ -287,10 +287,10 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                             <h2 className="text-2xl font-bold text-gray-800">Bảng Quản Trị</h2>
                             <button
                                 onClick={() => setShowWorkflowEditor(!showWorkflowEditor)}
-                                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                                className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
                                     showWorkflowEditor
-                                        ? 'bg-green-600 text-white shadow-md'
-                                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                        ? 'bg-green-500 text-white'
+                                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                                 }`}
                             >
                                 {showWorkflowEditor ? '✓ Trình Chỉnh Sửa Đang Mở' : '📊 Mở Trình Chỉnh Sửa Quy Trình'}
