@@ -20,19 +20,30 @@ export async function GET(request: NextRequest) {
 // POST /api/sensor-data - Insert sensor data and trigger automation
 export async function POST(request: NextRequest) {
     try {
-        const data: SensorData = await request.json();
+        const rawData: any = await request.json();
         
         // Validate required fields
-        if (!data.sensorId || typeof data.value !== 'number') {
+        if (!rawData.sensorId) {
             return NextResponse.json(
                 { 
                     error: 'Invalid request format',
-                    required: { sensorId: 'string', value: 'number' },
-                    example: { sensorId: 'sensor-123', value: 5.2, timestamp: 1234567890 }
+                    required: { sensorId: 'string', waterLevel?: 'number', temperature?: 'number', humidity?: 'number' },
+                    example: { sensorId: 'sensor-123', waterLevel: 5.2, timestamp: 1234567890 }
                 },
                 { status: 400 }
             );
         }
+
+        // Convert to SensorData format
+        const data: SensorData = {
+            sensorId: rawData.sensorId,
+            timestamp: rawData.timestamp || Date.now(),
+            waterLevel: rawData.waterLevel || rawData.value, // Support both formats
+            temperature: rawData.temperature,
+            humidity: rawData.humidity,
+            location: rawData.location,
+            data: rawData.data
+        };
 
         // Store sensor data
         const id = await insertSensorData(data);
@@ -52,9 +63,14 @@ export async function POST(request: NextRequest) {
         }
 
         // Trigger automation rules
+        // Get the actual sensor value based on sensor type
+        const value = sensor.type === 'water_level' ? data.waterLevel :
+                     sensor.type === 'temperature' ? data.temperature :
+                     sensor.type === 'humidity' ? data.humidity : 0;
+
         const sensorReading = {
             sensorId: data.sensorId,
-            value: data.value,
+            value: value || 0,
             timestamp: data.timestamp || Date.now(),
             sensorName: sensor.name,
             type: sensor.type

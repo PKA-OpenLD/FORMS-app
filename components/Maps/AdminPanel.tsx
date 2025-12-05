@@ -28,6 +28,20 @@ interface SensorRule {
     };
 }
 
+interface UserReport {
+    id: string;
+    type: 'flood' | 'outage' | 'other';
+    location: [number, number];
+    coordinates?: number[][];
+    description: string;
+    severity: 'low' | 'medium' | 'high';
+    reporterName?: string;
+    reporterContact?: string;
+    status: 'new' | 'investigating' | 'resolved';
+    createdAt: number;
+    updatedAt?: number;
+}
+
 interface AdminPanelProps {
     map: any | null;
     onDrawZone: (type: 'flood' | 'outage', shape: 'circle' | 'line') => void;
@@ -39,12 +53,13 @@ interface AdminPanelProps {
 export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor, onAddSensorRule }: AdminPanelProps) {
     const [isOpen, setIsOpen] = useState(true);
     const [activeDrawMode, setActiveDrawMode] = useState<'flood' | 'outage' | null>(null);
-    const [activeTab, setActiveTab] = useState<'zones' | 'workflow'>('zones');
+    const [activeTab, setActiveTab] = useState<'zones' | 'reports'>('zones');
     const [panelWidth, setPanelWidth] = useState(384); // 96 * 4 = 384px (w-96)
     const [workflowWidth, setWorkflowWidth] = useState(50); // 50% of screen
     const [isResizing, setIsResizing] = useState(false);
     const [sensors, setSensors] = useState<Sensor[]>([]);
     const [sensorRules, setSensorRules] = useState<SensorRule[]>([]);
+    const [userReports, setUserReports] = useState<UserReport[]>([]);
     const [isAddingSensor, setIsAddingSensor] = useState(false);
     const [isAddingRule, setIsAddingRule] = useState(false);
     const [newSensor, setNewSensor] = useState({
@@ -82,6 +97,12 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
             .then(res => res.json())
             .then(data => setSensorRules(data.rules || []))
             .catch(err => console.error('Failed to load sensor rules:', err));
+
+        // Load user reports
+        fetch('/api/user-reports')
+            .then(res => res.json())
+            .then(data => setUserReports(data.reports || []))
+            .catch(err => console.error('Failed to load user reports:', err));
     }, []);
 
     // Handle panel resizing
@@ -89,18 +110,10 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
         const handleMouseMove = (e: MouseEvent) => {
             if (!isResizing) return;
             
-            if (activeTab === 'workflow') {
-                // For workflow, resize as percentage of screen width
-                const percentage = (e.clientX / window.innerWidth) * 100;
-                if (percentage >= 30 && percentage <= 70) {
-                    setWorkflowWidth(percentage);
-                }
-            } else {
-                // For regular panel, resize as fixed width
-                const newWidth = e.clientX - 16; // 16px offset from left
-                if (newWidth >= 320 && newWidth <= 800) {
-                    setPanelWidth(newWidth);
-                }
+            // For regular panel, resize as fixed width
+            const newWidth = e.clientX - 16; // 16px offset from left
+            if (newWidth >= 320 && newWidth <= 800) {
+                setPanelWidth(newWidth);
             }
         };
 
@@ -204,32 +217,50 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
             .then(() => setSensorRules(prev => prev.filter(r => r.id !== id)));
     };
 
+    const updateReportStatus = (id: string, status: 'new' | 'investigating' | 'resolved') => {
+        fetch(`/api/user-reports`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, status })
+        }).then(() => {
+            setUserReports(prev => prev.map(r => 
+                r.id === id ? { ...r, status, updatedAt: Date.now() } : r
+            ));
+        }).catch(err => console.error('Failed to update report:', err));
+    };
+
+    const deleteReport = (id: string) => {
+        if (!confirm('Bạn có chắc muốn xóa báo cáo này?')) return;
+        
+        fetch(`/api/user-reports?id=${id}`, { method: 'DELETE' })
+            .then(() => setUserReports(prev => prev.filter(r => r.id !== id)))
+            .catch(err => console.error('Failed to delete report:', err));
+    };
+
     return (
         <>
-            {/* Toggle Button - Hide when workflow is active */}
-            {activeTab !== 'workflow' && (
-                <button
-                    onClick={() => setIsOpen(!isOpen)}
-                    className="fixed top-4 left-4 z-50 bg-white rounded-lg shadow-lg p-3 hover:bg-gray-50 transition-colors"
+            {/* Toggle Button */}
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="fixed top-4 left-4 z-50 bg-white rounded-lg shadow-lg p-3 hover:bg-gray-50 transition-colors"
+            >
+                <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
                 >
-                    <svg
-                        className="w-6 h-6"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                    >
-                        <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M4 6h16M4 12h16M4 18h16"
-                        />
-                    </svg>
-                </button>
-            )}
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 6h16M4 12h16M4 18h16"
+                    />
+                </svg>
+            </button>
 
             {/* Admin Panel */}
-            {isOpen && activeTab !== 'workflow' && (
+            {isOpen && (
                 <div 
                     className="fixed top-20 left-4 z-40 shadow-xl max-h-[85vh] flex overflow-hidden rounded-lg"
                     style={{ width: `${panelWidth}px` }}
@@ -250,14 +281,14 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                                 Khu Vực
                             </button>
                             <button
-                                onClick={() => setActiveTab('workflow')}
+                                onClick={() => setActiveTab('reports')}
                                 className={`pb-2 px-4 font-medium transition-colors ${
-                                    activeTab === 'workflow'
-                                        ? 'border-b-2 border-purple-500 text-purple-600'
+                                    activeTab === 'reports'
+                                        ? 'border-b-2 border-red-500 text-red-600'
                                         : 'text-gray-600 hover:text-gray-800'
                                 }`}
                             >
-                                ⚙️ Cảm Biến & Quy Trình
+                                📢 Báo Cáo ({userReports.filter(r => r.status === 'new').length})
                             </button>
                         </div>
 
@@ -379,7 +410,148 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                             </>
                         )}
 
-                        {activeTab === 'workflow-sensors-old-remove-this' && (
+                        {activeTab === 'reports' && (
+                            <>
+                                <div className="mb-4">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-lg font-bold text-gray-800">
+                                            📢 Báo Cáo Từ Cộng Đồng
+                                        </h3>
+                                        <div className="flex gap-2 text-xs">
+                                            <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full font-semibold">
+                                                {userReports.filter(r => r.status === 'new').length} Mới
+                                            </span>
+                                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-semibold">
+                                                {userReports.filter(r => r.status === 'investigating').length} Đang xử lý
+                                            </span>
+                                            <span className="px-2 py-1 bg-green-100 text-green-700 rounded-full font-semibold">
+                                                {userReports.filter(r => r.status === 'resolved').length} Đã giải quyết
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-3 max-h-[calc(85vh-200px)] overflow-y-auto pr-2">
+                                    {userReports.length === 0 ? (
+                                        <div className="text-center py-12 text-gray-400">
+                                            <div className="text-5xl mb-3">📭</div>
+                                            <p className="font-medium">Chưa có báo cáo nào</p>
+                                            <p className="text-sm mt-1">Báo cáo từ cộng đồng sẽ xuất hiện ở đây</p>
+                                        </div>
+                                    ) : (
+                                        userReports
+                                            .sort((a, b) => b.createdAt - a.createdAt)
+                                            .map(report => (
+                                                <div 
+                                                    key={report.id} 
+                                                    className={`bg-white border-2 rounded-xl p-4 transition-all hover:shadow-lg group ${
+                                                        report.status === 'new' ? 'border-yellow-300 bg-yellow-50' :
+                                                        report.status === 'investigating' ? 'border-blue-300 bg-blue-50' :
+                                                        'border-green-300 bg-green-50'
+                                                    }`}
+                                                >
+                                                    <div className="flex justify-between items-start mb-3">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-2xl">
+                                                                {report.type === 'flood' ? '🌊' : 
+                                                                 report.type === 'outage' ? '⚡' : '⚠️'}
+                                                            </span>
+                                                            <div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="font-bold text-gray-800">
+                                                                        {report.type === 'flood' ? 'Lũ Lụt' : 
+                                                                         report.type === 'outage' ? 'Mất Điện' : 'Khác'}
+                                                                    </span>
+                                                                    <span className={`text-xs px-2 py-1 rounded-full font-bold ${
+                                                                        report.severity === 'high' ? 'bg-red-500 text-white' :
+                                                                        report.severity === 'medium' ? 'bg-orange-500 text-white' :
+                                                                        'bg-gray-500 text-white'
+                                                                    }`}>
+                                                                        {report.severity === 'high' ? '🔴 CAO' :
+                                                                         report.severity === 'medium' ? '🟠 TRUNG BÌNH' :
+                                                                         '🟢 THẤP'}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-xs text-gray-500 mt-1">
+                                                                    {new Date(report.createdAt).toLocaleString('vi-VN')}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            onClick={() => deleteReport(report.id)}
+                                                            className="text-gray-400 hover:text-red-600 hover:bg-red-100 p-2 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                                                            title="Xóa báo cáo"
+                                                        >
+                                                            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="mb-3 pl-9">
+                                                        <p className="text-sm text-gray-700 mb-2">{report.description}</p>
+                                                        
+                                                        <div className="space-y-1 text-xs text-gray-600">
+                                                            <p className="font-mono">
+                                                                📍 {report.location[1].toFixed(5)}, {report.location[0].toFixed(5)}
+                                                            </p>
+                                                            {report.coordinates && report.coordinates.length > 1 && (
+                                                                <p className="text-blue-600 font-semibold">
+                                                                    📏 Đường kẻ {report.coordinates.length} điểm
+                                                                </p>
+                                                            )}
+                                                            {report.reporterName && (
+                                                                <p>👤 {report.reporterName}</p>
+                                                            )}
+                                                            {report.reporterContact && (
+                                                                <p>📞 {report.reporterContact}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex gap-2 pl-9">
+                                                        <button
+                                                            onClick={() => updateReportStatus(report.id, 'new')}
+                                                            disabled={report.status === 'new'}
+                                                            className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                                                report.status === 'new'
+                                                                    ? 'bg-yellow-500 text-white cursor-default'
+                                                                    : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                                                            }`}
+                                                        >
+                                                            📝 Mới
+                                                        </button>
+                                                        <button
+                                                            onClick={() => updateReportStatus(report.id, 'investigating')}
+                                                            disabled={report.status === 'investigating'}
+                                                            className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                                                report.status === 'investigating'
+                                                                    ? 'bg-blue-500 text-white cursor-default'
+                                                                    : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                                            }`}
+                                                        >
+                                                            🔍 Đang xử lý
+                                                        </button>
+                                                        <button
+                                                            onClick={() => updateReportStatus(report.id, 'resolved')}
+                                                            disabled={report.status === 'resolved'}
+                                                            className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                                                                report.status === 'resolved'
+                                                                    ? 'bg-green-500 text-white cursor-default'
+                                                                    : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                                            }`}
+                                                        >
+                                                            ✅ Đã giải quyết
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))
+                                    )}
+                                </div>
+                            </>
+                        )}
+
+                        {false && (
                             <>
                                 {/* Add Sensor Card */}
                                 <div className="mb-6 border-2 border-green-200 rounded-xl bg-gradient-to-br from-green-50 to-emerald-50 p-5 shadow-sm">
@@ -866,7 +1038,7 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
             )}
 
             {/* Split-screen Workflow Editor */}
-            {isOpen && activeTab === 'workflow' && (
+            {false && (
                 <div 
                     className="fixed left-0 top-0 bottom-0 z-30 bg-gray-900 shadow-2xl flex"
                     style={{ width: `${workflowWidth}%` }}
@@ -883,10 +1055,10 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                             // Process trigger nodes (standalone automation)
                             const triggerNodes = nodes.filter(n => n.type === 'trigger');
                             triggerNodes.forEach(trigger => {
-                                const data = trigger.data;
+                                const data = trigger.data as any;
                                 
                                 // For line triggers with 2 points
-                                if (data.actionShape === 'line' && data.points?.length === 2) {
+                                if (data.actionShape === 'line' && (data.points as [number, number][])?.length === 2) {
                                     newRules.push({
                                         name: data.label,
                                         type: '1-sensor',
@@ -988,7 +1160,7 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                             });
                             
                             alert(`✓ Đã tạo ${newRules.length} quy tắc tự động từ quy trình!`);
-                            setActiveTab('workflow');
+                            // setActiveTab('workflow');
                         }}
                         />
                     </div>
@@ -1004,7 +1176,7 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                         title="Kéo để thay đổi kích thước"
                     >
                         <button
-                            onClick={() => setActiveTab('sensors')}
+                            onClick={() => setActiveTab('zones')}
                             className="absolute top-4 bg-white text-gray-800 px-3 py-2 rounded-lg shadow-lg hover:bg-gray-100 transition-colors text-xs font-medium whitespace-nowrap"
                             style={{ transform: 'rotate(-90deg)', transformOrigin: 'center' }}
                         >

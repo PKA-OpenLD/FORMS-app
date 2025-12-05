@@ -44,8 +44,8 @@ interface WorkflowEditorProps {
 }
 
 export default function WorkflowEditor({ sensors, map, onSaveWorkflow, onSensorCreated }: WorkflowEditorProps) {
-    const [nodes, setNodes, onNodesChange] = useNodesState([]);
-    const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+    const [nodes, setNodes, onNodesChange] = useNodesState([] as Node[]);
+    const [edges, setEdges, onEdgesChange] = useEdgesState([] as Edge[]);
     const [selectedNodeType, setSelectedNodeType] = useState<'sensor' | 'logic' | 'action' | 'trigger' | 'new-sensor' | null>(null);
     const [editingNode, setEditingNode] = useState<{ id: string; type: string; data: any } | null>(null);
     const [selectingPointsFor, setSelectingPointsFor] = useState<string | null>(null);
@@ -74,7 +74,7 @@ export default function WorkflowEditor({ sensors, map, onSaveWorkflow, onSensorC
     // Update node data
     const updateNodeData = (id: string, newData: any) => {
         setNodes((nds) => nds.map(node => 
-            node.id === id ? { ...node, data: { ...node.data, ...newData } } : node
+            node.id === id ? { ...node, data: { ...node.data, ...newData, onEdit: handleEditNode } } : node
         ));
         setEditingNode(null);
     };
@@ -268,7 +268,7 @@ export default function WorkflowEditor({ sensors, map, onSaveWorkflow, onSensorC
             const node = nodes.find(n => n.id === selectingPointsFor);
             if (!node) return;
 
-            const currentPoints = node.data.points || [];
+            const currentPoints = (node.data.points || []) as [number, number][];
             
             // Add marker to map
             if (typeof window !== 'undefined' && (window as any).maplibregl) {
@@ -509,7 +509,7 @@ export default function WorkflowEditor({ sensors, map, onSaveWorkflow, onSensorC
 
             {selectingPointsFor && (
                 <div className="bg-blue-100 border-b-2 border-blue-400 px-4 py-2 text-sm text-blue-800 font-medium animate-pulse">
-                    📍 Nhấp vào BẢN ĐỒ (bên phải) để chọn điểm {(nodes.find(n => n.id === selectingPointsFor)?.data.points?.length || 0) + 1}/2
+                    📍 Nhấp vào BẢN ĐỒ (bên phải) để chọn điểm {((nodes.find(n => n.id === selectingPointsFor)?.data.points as [number, number][] | undefined)?.length || 0) + 1}/2
                 </div>
             )}
 
@@ -539,6 +539,9 @@ export default function WorkflowEditor({ sensors, map, onSaveWorkflow, onSensorC
                     onConnect={onConnect}
                     onPaneClick={onPaneClick}
                     nodeTypes={nodeTypes}
+                    nodesDraggable={true}
+                    nodesConnectable={true}
+                    elementsSelectable={true}
                     fitView
                     className="bg-gray-50"
                 >

@@ -7,15 +7,23 @@ interface LogicNodeData {
     onEdit?: (id: string, data: LogicNodeData) => void;
 }
 
-function LogicNode({ id, data }: NodeProps<LogicNodeData>) {
+function LogicNode({ id, data }: NodeProps) {
+    const nodeData = data as unknown as LogicNodeData;
+    const handleDoubleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (nodeData.onEdit) {
+            nodeData.onEdit(id, nodeData);
+        }
+    };
+
     return (
         <div 
             className={`border-2 rounded-full shadow-lg p-6 cursor-pointer hover:shadow-2xl transition-shadow ${
-                data.operator === 'AND' 
+                nodeData.operator === 'AND' 
                     ? 'bg-indigo-500 border-indigo-600' 
                     : 'bg-purple-500 border-purple-600'
             }`}
-            onDoubleClick={() => data.onEdit?.(id, data)}
+            onDoubleClick={handleDoubleClick}
         >
             <Handle 
                 type="target" 
@@ -32,7 +40,7 @@ function LogicNode({ id, data }: NodeProps<LogicNodeData>) {
                 className="!bg-white !w-3 !h-3 !border-2 !border-gray-400"
             />
             <div className="text-white font-bold text-xl">
-                {data.operator}
+                {nodeData.operator}
             </div>
             <Handle 
                 type="source" 

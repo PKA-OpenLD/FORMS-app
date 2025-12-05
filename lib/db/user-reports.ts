@@ -1,0 +1,99 @@
+/*
+ * Copyright 2025 PKA-OpenLD
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { getDatabase } from '../mongodb';
+
+const COLLECTION = 'user_reports';
+
+export interface UserReport {
+    id?: string;
+    type: 'flood' | 'outage' | 'other';
+    location: [number, number]; // [lng, lat]
+    description: string;
+    severity: 'low' | 'medium' | 'high';
+    reporterName?: string;
+    reporterContact?: string;
+    status: 'new' | 'investigating' | 'resolved';
+    createdAt: number;
+    updatedAt?: number;
+    images?: string[]; // URLs to uploaded images
+}
+
+// Create a new user report
+export async function createUserReport(report: Omit<UserReport, 'id' | 'createdAt' | 'status'>): Promise<UserReport> {
+    const db = await getDatabase();
+    const collection = db.collection(COLLECTION);
+    
+    const newReport: UserReport = {
+        ...report,
+        id: `report-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        status: 'new',
+        createdAt: Date.now(),
+    };
+    
+    await collection.insertOne(newReport as any);
+    return newReport;
+}
+
+// Get recent user reports
+export async function getRecentUserReports(limit: number = 100): Promise<UserReport[]> {
+    const db = await getDatabase();
+    const reports = await db.collection(COLLECTION)
+        .find({})
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .toArray();
+    
+    return reports.map(r => ({ ...r, _id: undefined } as any));
+}
+
+// Get user reports by type
+export async function getUserReportsByType(type: string, limit: number = 100): Promise<UserReport[]> {
+    const db = await getDatabase();
+    const reports = await db.collection(COLLECTION)
+        .find({ type })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .toArray();
+    
+    return reports.map(r => ({ ...r, _id: undefined } as any));
+}
+
+// Get user reports by status
+export async function getUserReportsByStatus(status: string): Promise<UserReport[]> {
+    const db = await getDatabase();
+    const reports = await db.collection(COLLECTION)
+        .find({ status })
+        .sort({ createdAt: -1 })
+        .toArray();
+    
+    return reports.map(r => ({ ...r, _id: undefined } as any));
+}
+
+// Update report status
+export async function updateReportStatus(reportId: string, status: 'new' | 'investigating' | 'resolved'): Promise<void> {
+    const db = await getDatabase();
+    await db.collection(COLLECTION).updateOne(
+        { id: reportId },
+        { $set: { status, updatedAt: Date.now() } }
+    );
+}
+
+// Delete a report
+export async function deleteUserReport(reportId: string): Promise<void> {
+    const db = await getDatabase();
+    await db.collection(COLLECTION).deleteOne({ id: reportId });
+}

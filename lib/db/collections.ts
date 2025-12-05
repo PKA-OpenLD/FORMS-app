@@ -5,6 +5,7 @@ export const COLLECTIONS = {
   SENSOR_DATA: 'sensor_data',
   SENSOR_RULES: 'sensor_rules',
   PREDICTIONS: 'predictions',
+  USER_REPORTS: 'user_reports',
 };
 
 // Initialize database indexes
@@ -28,6 +29,12 @@ export async function initializeIndexes(db: any) {
     // Predictions indexes
     await db.collection(COLLECTIONS.PREDICTIONS).createIndex({ type: 1, timestamp: -1 });
     await db.collection(COLLECTIONS.PREDICTIONS).createIndex({ expiresAt: 1 });
+    
+    // User reports indexes
+    await db.collection(COLLECTIONS.USER_REPORTS).createIndex({ id: 1 }, { unique: true });
+    await db.collection(COLLECTIONS.USER_REPORTS).createIndex({ type: 1, createdAt: -1 });
+    await db.collection(COLLECTIONS.USER_REPORTS).createIndex({ status: 1 });
+    await db.collection(COLLECTIONS.USER_REPORTS).createIndex({ createdAt: -1 });
     
     console.log('MongoDB indexes initialized');
   } catch (error) {

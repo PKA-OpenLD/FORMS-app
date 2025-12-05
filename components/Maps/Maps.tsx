@@ -3,6 +3,10 @@ import vietmapgl from '@vietmap/vietmap-gl-js/dist/vietmap-gl.js';
 import '@vietmap/vietmap-gl-js/dist/vietmap-gl.css';
 import { useState, useEffect, useRef } from 'react';
 import AdminPanel from './AdminPanel';
+import UserReportButton from './UserReportButton';
+import WeatherPanel from './WeatherPanel';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faMap, faCloudSun } from '@fortawesome/free-solid-svg-icons';
 
 interface Zone {
     id: string;
@@ -24,6 +28,17 @@ interface Sensor {
     threshold: number;
     actionType: 'flood' | 'outage';
     createdAt?: number;
+}
+
+interface UserReport {
+    id: string;
+    type: 'flood' | 'outage' | 'other';
+    location: [number, number];
+    description: string;
+    severity: 'low' | 'medium' | 'high';
+    reporterName?: string;
+    status: 'new' | 'investigating' | 'resolved';
+    createdAt: number;
 }
 
 interface MapsProps {
@@ -49,12 +64,14 @@ export default function Maps({ isAdmin = false }: MapsProps) {
     const [pendingZone, setPendingZone] = useState<Zone | null>(null);
     const [zoneForm, setZoneForm] = useState({ title: '', description: '' });
     const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const [userReports, setUserReports] = useState<UserReport[]>([]);
+    const [viewMode, setViewMode] = useState<'map' | 'weather'>('map');
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
 
-    // Load zones and sensors from database on mount
+    // Load zones, sensors, and user reports from database on mount
     useEffect(() => {
         fetch('/api/zones')
             .then(res => res.json())
@@ -64,6 +81,15 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 }
             })
             .catch(err => console.error('Failed to load zones:', err));
+        
+        fetch('/api/user-reports')
+            .then(res => res.json())
+            .then(data => {
+                if (data.reports) {
+                    setUserReports(data.reports);
+                }
+            })
+            .catch(err => console.error('Failed to load user reports:', err));
         
         if (isAdmin) {
             fetch('/api/sensors')
@@ -111,6 +137,8 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     setSensors(prev => [...prev, message.sensor]);
                 } else if (message.type === 'sensor_deleted' && isAdmin) {
                     setSensors(prev => prev.filter(s => s.id !== message.sensorId));
+                } else if (message.type === 'user_report_created') {
+                    setUserReports(prev => [...prev, message.report]);
                 }
             } catch (error) {
                 console.error('Failed to parse WebSocket message:', error);
@@ -143,6 +171,13 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             updateSensorsOnMap(sensors);
         }
     }, [sensors, map, isAdmin]);
+
+    // Update map when user reports change
+    useEffect(() => {
+        if (map && userReports.length > 0) {
+            updateUserReportsOnMap(userReports);
+        }
+    }, [userReports, map]);
 
     useEffect(() => {
         if (!isMounted || !mapContainerRef.current || map) return;
@@ -193,6 +228,15 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     }
                 });
             }
+
+            // Add source for user reports
+            mapInstance.addSource('user-reports', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: []
+                }
+            });
 
             // Add layer for flood circle zones
             mapInstance.addLayer({
@@ -285,6 +329,46 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 });
             }
 
+            // Add user reports layer
+            mapInstance.addLayer({
+                id: 'user-reports-circle',
+                type: 'circle',
+                source: 'user-reports',
+                paint: {
+                    'circle-radius': [
+                        'case',
+                        ['==', ['get', 'severity'], 'high'], 12,
+                        ['==', ['get', 'severity'], 'medium'], 10,
+                        8
+                    ],
+                    'circle-color': [
+                        'case',
+                        ['==', ['get', 'type'], 'flood'], '#3b82f6',
+                        ['==', ['get', 'type'], 'outage'], '#ef4444',
+                        '#6b7280'
+                    ],
+                    'circle-stroke-width': 3,
+                    'circle-stroke-color': '#ffffff',
+                    'circle-opacity': 0.85
+                }
+            });
+
+            // Add pulse animation layer for high severity reports
+            mapInstance.addLayer({
+                id: 'user-reports-pulse',
+                type: 'circle',
+                source: 'user-reports',
+                filter: ['==', ['get', 'severity'], 'high'],
+                paint: {
+                    'circle-radius': 20,
+                    'circle-color': '#ef4444',
+                    'circle-opacity': 0.3,
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ef4444',
+                    'circle-stroke-opacity': 0.5
+                }
+            });
+
             setMap(mapInstance);
         });
 
@@ -373,6 +457,72 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             map.off('mouseleave', 'zones-lines', handleLeave);
         };
     }, [map, zones]);
+
+    // Add click handler for user reports
+    useEffect(() => {
+        if (!map) return;
+
+        const handleReportClick = (e: any) => {
+            if (!e.features || e.features.length === 0) return;
+            
+            const feature = e.features[0];
+            const props = feature.properties;
+            
+            const popup = new (window as any).maplibregl.Popup({ offset: 25 })
+                .setLngLat(feature.geometry.coordinates)
+                .setHTML(`
+                    <div class="p-3 min-w-[250px]">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-2xl">
+                                ${props.type === 'flood' ? '🌊' : props.type === 'outage' ? '⚡' : '⚠️'}
+                            </span>
+                            <div class="flex-1">
+                                <div class="font-bold text-gray-800">
+                                    ${props.type === 'flood' ? 'Báo Cáo Lũ Lụt' : props.type === 'outage' ? 'Báo Cáo Mất Điện' : 'Báo Cáo Khác'}
+                                </div>
+                                <div class="text-xs text-gray-500">
+                                    ${new Date(props.createdAt).toLocaleString('vi-VN')}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <span class="inline-block px-2 py-1 rounded-full text-xs font-bold ${
+                                props.severity === 'high' 
+                                    ? 'bg-red-100 text-red-700' 
+                                    : props.severity === 'medium' 
+                                    ? 'bg-orange-100 text-orange-700' 
+                                    : 'bg-yellow-100 text-yellow-700'
+                            }">
+                                ${props.severity === 'high' ? '🔴 Nghiêm Trọng' : props.severity === 'medium' ? '🟠 Trung Bình' : '🟡 Nhẹ'}
+                            </span>
+                        </div>
+                        <p class="text-sm text-gray-700 mb-2">${props.description}</p>
+                        <div class="text-xs text-gray-500 border-t pt-2">
+                            Người báo cáo: <strong>${props.reporterName}</strong>
+                        </div>
+                    </div>
+                `)
+                .addTo(map);
+        };
+
+        const handleReportHover = () => {
+            map.getCanvas().style.cursor = 'pointer';
+        };
+
+        const handleReportLeave = () => {
+            map.getCanvas().style.cursor = '';
+        };
+
+        map.on('click', 'user-reports-circle', handleReportClick);
+        map.on('mouseenter', 'user-reports-circle', handleReportHover);
+        map.on('mouseleave', 'user-reports-circle', handleReportLeave);
+
+        return () => {
+            map.off('click', 'user-reports-circle', handleReportClick);
+            map.off('mouseenter', 'user-reports-circle', handleReportHover);
+            map.off('mouseleave', 'user-reports-circle', handleReportLeave);
+        };
+    }, [map, userReports]);
 
     // Handle zone drawing
     useEffect(() => {
@@ -692,6 +842,35 @@ export default function Maps({ isAdmin = false }: MapsProps) {
         }
     };
 
+    const updateUserReportsOnMap = (reportsData: UserReport[]) => {
+        if (!map) return;
+
+        const features = reportsData.map(report => ({
+            type: 'Feature' as const,
+            geometry: {
+                type: 'Point' as const,
+                coordinates: report.location
+            },
+            properties: {
+                id: report.id,
+                type: report.type,
+                severity: report.severity,
+                description: report.description,
+                reporterName: report.reporterName || 'Ẩn danh',
+                status: report.status,
+                createdAt: report.createdAt
+            }
+        }));
+
+        const source = map.getSource('user-reports') as any;
+        if (source) {
+            source.setData({
+                type: 'FeatureCollection',
+                features
+            });
+        }
+    };
+
     const saveZoneWithDialog = (zone: Zone) => {
         setPendingZone(zone);
         setShowTitleDialog(true);
@@ -912,6 +1091,45 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                         </div>
                     )}
                 </>
+            )}
+
+            {/* User Report Button - Always visible for all users */}
+            {!isAdmin && <UserReportButton map={map} />}
+
+            {/* Weather Overlay - Only for non-admin users */}
+            {!isAdmin && viewMode === 'weather' && map && (
+                <WeatherPanel 
+                    location={map.getCenter() ? [map.getCenter().lng, map.getCenter().lat] : undefined}
+                    map={map}
+                />
+            )}
+
+            {/* View Mode Switcher - Only for non-admin users */}
+            {!isAdmin && (
+                <div className="fixed top-4 right-4 z-50 flex gap-2">
+                    <button
+                        onClick={() => setViewMode('map')}
+                        className={`px-4 py-2 rounded-lg font-semibold transition-all shadow-lg ${
+                            viewMode === 'map'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-white text-gray-700 hover:bg-gray-100'
+                        }`}
+                    >
+                        <FontAwesomeIcon icon={faMap} className="mr-2" />
+                        Bản Đồ
+                    </button>
+                    <button
+                        onClick={() => setViewMode('weather')}
+                        className={`px-4 py-2 rounded-lg font-semibold transition-all shadow-lg ${
+                            viewMode === 'weather'
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-white text-gray-700 hover:bg-gray-100'
+                        }`}
+                    >
+                        <FontAwesomeIcon icon={faCloudSun} className="mr-2" />
+                        Thời Tiết
+                    </button>
+                </div>
             )}
         </>
     );
