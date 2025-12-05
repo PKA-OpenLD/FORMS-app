@@ -65,8 +65,8 @@ export default function WorkflowEditor({
   onSaveWorkflow,
   onSensorCreated,
 }: WorkflowEditorProps) {
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNodeType, setSelectedNodeType] = useState<
     "sensor" | "logic" | "action" | "trigger" | "new-sensor" | null
   >(null);
@@ -321,12 +321,12 @@ export default function WorkflowEditor({
       const node = nodes.find((n) => n.id === selectingPointsFor);
       if (!node) return;
 
-      const currentPoints = node.data.points || [];
+      const currentPoints = (node.data as any).points || [];
 
       // Add marker to map
       if (typeof window !== "undefined" && (window as any).maplibregl) {
         const marker = new (window as any).maplibregl.Marker({
-          color: node.data.actionType === "flood" ? "#3b82f6" : "#ef4444",
+          color: (node.data as any).actionType === "flood" ? "#3b82f6" : "#ef4444",
         })
           .setLngLat([lng, lat])
           .addTo(map);
@@ -585,7 +585,7 @@ export default function WorkflowEditor({
       {selectingPointsFor && (
         <div className="bg-blue-100 border-b-2 border-blue-400 px-4 py-2 text-sm text-blue-800 font-medium animate-pulse">
           📍 Nhấp vào BẢN ĐỒ (bên phải) để chọn điểm{" "}
-          {(nodes.find((n) => n.id === selectingPointsFor)?.data.points
+          {((nodes.find((n) => n.id === selectingPointsFor)?.data as any)?.points
             ?.length || 0) + 1}
           /2
         </div>

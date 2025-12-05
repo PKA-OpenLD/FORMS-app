@@ -53,17 +53,21 @@ export default function UserReportButton({ map }: UserReportButtonProps) {
     useEffect(() => {
         if (!isSelectingLocation) {
             // Clean up markers
-            tempMarkers.forEach(marker => marker.remove());
-            setTempMarkers([]);
+            setTempMarkers(prevMarkers => {
+                prevMarkers.forEach(marker => marker.remove());
+                return [];
+            });
             
             // Clean up line layer
-            if (tempLineLayer && map) {
-                if (map.getLayer(tempLineLayer)) map.removeLayer(tempLineLayer);
-                if (map.getSource(tempLineLayer)) map.removeSource(tempLineLayer);
-                setTempLineLayer(null);
-            }
+            setTempLineLayer(prevLayerId => {
+                if (prevLayerId && map) {
+                    if (map.getLayer(prevLayerId)) map.removeLayer(prevLayerId);
+                    if (map.getSource(prevLayerId)) map.removeSource(prevLayerId);
+                }
+                return null;
+            });
         }
-    }, [isSelectingLocation, tempMarkers, tempLineLayer, map]);
+    }, [isSelectingLocation, map]);
 
     const handleLocationSelect = () => {
         if (!map) return;

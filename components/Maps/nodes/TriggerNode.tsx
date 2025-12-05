@@ -29,23 +29,24 @@ interface TriggerNodeData {
   onEdit?: (id: string, data: TriggerNodeData) => void;
 }
 
-function TriggerNode({ id, data }: NodeProps<TriggerNodeData>) {
+function TriggerNode({ id, data }: NodeProps) {
+  const nodeData = data as unknown as TriggerNodeData;
   const bgColor =
-    data.actionType === "flood"
+    nodeData.actionType === "flood"
       ? "bg-gradient-to-br from-blue-500 to-blue-600"
       : "bg-gradient-to-br from-red-500 to-red-600";
   const borderColor =
-    data.actionType === "flood" ? "border-blue-700" : "border-red-700";
-  const icon = data.actionType === "flood" ? "🌊" : "⚡";
-  const shapeIcon = data.actionShape === "circle" ? "⭕" : "━";
-  const conditionIcon = data.condition === "active" ? "✓" : "✕";
+    nodeData.actionType === "flood" ? "border-blue-700" : "border-red-700";
+  const icon = nodeData.actionType === "flood" ? "🌊" : "⚡";
+  const shapeIcon = nodeData.actionShape === "circle" ? "⭕" : "━";
+  const conditionIcon = nodeData.condition === "active" ? "✓" : "✕";
   const conditionBg =
-    data.condition === "active" ? "bg-green-500" : "bg-gray-500";
+    nodeData.condition === "active" ? "bg-green-500" : "bg-gray-500";
 
   return (
     <div
       className={`${bgColor} ${borderColor} border-3 rounded-2xl shadow-xl p-4 min-w-[220px] text-white cursor-pointer hover:shadow-2xl hover:scale-105 transition-all`}
-      onDoubleClick={() => data.onEdit?.(id, data)}
+      onDoubleClick={() => nodeData.onEdit?.(id, nodeData)}
     >
       <Handle
         type="target"
@@ -57,27 +58,27 @@ function TriggerNode({ id, data }: NodeProps<TriggerNodeData>) {
         <div className="flex items-center gap-2">
           <span className="text-2xl">{icon}</span>
           <div className="flex-1">
-            <div className="font-bold text-sm">{data.label}</div>
+            <div className="font-bold text-sm">{nodeData.label}</div>
             <div className="text-xs opacity-90">Kích Hoạt Tự Động</div>
           </div>
         </div>
 
         <div className="bg-white bg-opacity-20 rounded-lg p-2 space-y-1">
-          <div className="text-xs font-semibold">📡 {data.sensorName}</div>
+          <div className="text-xs font-semibold">📡 {nodeData.sensorName}</div>
           <div className="flex items-center gap-1 text-xs">
             <span className={`${conditionBg} px-2 py-0.5 rounded font-bold`}>
-              {conditionIcon} {data.condition.toUpperCase()}
+              {conditionIcon} {nodeData.condition.toUpperCase()}
             </span>
             <span>→</span>
             <span className="font-semibold">
               Vẽ {shapeIcon}{" "}
-              {data.actionShape === "circle" ? "hình tròn" : "đường thẳng"}
+              {nodeData.actionShape === "circle" ? "hình tròn" : "đường thẳng"}
             </span>
           </div>
-          {data.points && data.points.length > 0 && (
+          {nodeData.points && nodeData.points.length > 0 && (
             <div className="text-xs mt-1">
-              <div className="font-semibold">Điểm: {data.points.length}/2</div>
-              {data.points.length === 2 && (
+              <div className="font-semibold">Điểm: {nodeData.points.length}/2</div>
+              {nodeData.points.length === 2 && (
                 <div className="text-green-300">✓ Đã cấu hình đường</div>
               )}
             </div>

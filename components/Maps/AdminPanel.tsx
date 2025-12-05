@@ -73,6 +73,7 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
     const [panelWidth, setPanelWidth] = useState(384); // 96 * 4 = 384px (w-96)
     const [workflowWidth, setWorkflowWidth] = useState(50); // 50% of screen
     const [isResizing, setIsResizing] = useState(false);
+    const [showWorkflowEditor, setShowWorkflowEditor] = useState(false);
     const [sensors, setSensors] = useState<Sensor[]>([]);
     const [sensorRules, setSensorRules] = useState<SensorRule[]>([]);
     const [userReports, setUserReports] = useState<UserReport[]>([]);
@@ -276,13 +277,25 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
             </button>
 
             {/* Admin Panel */}
-            {isOpen && (
+            {isOpen && !showWorkflowEditor && (
                 <div 
                     className="fixed top-20 left-4 z-40 shadow-xl max-h-[85vh] flex overflow-hidden rounded-lg"
                     style={{ width: `${panelWidth}px` }}
                 >
                     <div className="flex-1 overflow-y-auto p-6 bg-white">
-                        <h2 className="text-2xl font-bold mb-4 text-gray-800">Bảng Quản Trị</h2>
+                        <div className="flex items-center justify-between mb-4">
+                            <h2 className="text-2xl font-bold text-gray-800">Bảng Quản Trị</h2>
+                            <button
+                                onClick={() => setShowWorkflowEditor(!showWorkflowEditor)}
+                                className={`px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                                    showWorkflowEditor
+                                        ? 'bg-green-600 text-white shadow-md'
+                                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                }`}
+                            >
+                                {showWorkflowEditor ? '✓ Trình Chỉnh Sửa Đang Mở' : '📊 Mở Trình Chỉnh Sửa Quy Trình'}
+                            </button>
+                        </div>
                         
                         {/* Tabs */}
                         <div className="flex gap-2 mb-6 border-b">
@@ -1054,12 +1067,19 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
             )}
 
             {/* Split-screen Workflow Editor */}
-            {false && (
+            {showWorkflowEditor && (
                 <div 
                     className="fixed left-0 top-0 bottom-0 z-30 bg-gray-900 shadow-2xl flex"
                     style={{ width: `${workflowWidth}%` }}
                 >
                     <div className="flex-1 overflow-hidden relative">
+                        {/* Close Button */}
+                        <button
+                            onClick={() => setShowWorkflowEditor(false)}
+                            className="absolute top-4 right-4 z-50 bg-white hover:bg-red-50 text-gray-700 hover:text-red-600 rounded-lg shadow-lg px-4 py-2 font-medium transition-all flex items-center gap-2"
+                        >
+                            ← Quay lại
+                        </button>
                         <WorkflowEditor 
                             sensors={sensors}
                             map={map}

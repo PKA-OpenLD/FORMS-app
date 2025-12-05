@@ -67,10 +67,6 @@ Bun.serve({
       console.log("Client disconnected");
       clients.delete(ws);
     },
-    error(ws, error) {
-      console.error("WebSocket error:", error);
-      clients.delete(ws);
-    },
   },
 });
 
