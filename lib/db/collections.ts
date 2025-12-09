@@ -22,6 +22,7 @@ export const COLLECTIONS = {
   SENSOR_RULES: "sensor_rules",
   PREDICTIONS: "predictions",
   USER_REPORTS: "user_reports",
+  USERS: "users",
 };
 
 // Initialize database indexes

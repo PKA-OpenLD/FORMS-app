@@ -1,6 +1,10 @@
-import { Server } from 'bun';
+import { Server, ServerWebSocket } from 'bun';
 
-const server = Bun.serve({
+interface WebSocketData {
+  userId: string;
+}
+
+const server = Bun.serve<WebSocketData>({
   port: 3001,
   
   fetch(req, server) {
@@ -28,15 +32,15 @@ const server = Bun.serve({
   },
   
   websocket: {
-    open(ws) {
+    open(ws: ServerWebSocket<WebSocketData>) {
       console.log('WebSocket connected:', ws.data.userId);
     },
     
-    message(ws, message) {
+    message(ws: ServerWebSocket<WebSocketData>, message: string | Buffer) {
       console.log('Message from', ws.data.userId, ':', message);
     },
     
-    close(ws) {
+    close(ws: ServerWebSocket<WebSocketData>) {
       console.log('WebSocket disconnected:', ws.data.userId);
     }
   }
