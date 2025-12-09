@@ -47,7 +47,6 @@ const server = Bun.serve<WebSocketData>({
   },
 
   websocket: {
-<<<<<<< HEAD
     open(ws: ServerWebSocket<WebSocketData>) {
       console.log('WebSocket connected:', ws.data.userId);
     },
@@ -60,20 +59,6 @@ const server = Bun.serve<WebSocketData>({
       console.log('WebSocket disconnected:', ws.data.userId);
     }
   }
-=======
-    open(ws) {
-      console.log("WebSocket connected:", ws.data.userId);
-    },
-
-    message(ws, message) {
-      console.log("Message from", ws.data.userId, ":", message);
-    },
-
-    close(ws) {
-      console.log("WebSocket disconnected:", ws.data.userId);
-    },
-  },
->>>>>>> 1e221cab820f0727d41ee0a68bf0c7e35d76e8ae
 });
 
 console.log(`WebSocket server running on port ${server.port}`);
