@@ -14,56 +14,14 @@
  * limitations under the License.
  */
 
-// WebSocket server for real-time notifications
-import { WebSocketServer, WebSocket } from "ws";
-
-interface Client {
-  userId: string;
-  ws: WebSocket;
-}
-
-const wss = new WebSocketServer({ port: 3001 });
-const clients: Client[] = [];
-
-console.log("WebSocket server started on port 3001");
-
-wss.on("connection", (ws, req) => {
-  const url = new URL(req.url || "", "ws://localhost");
-  const userId = url.searchParams.get("userId");
-
-  if (!userId) {
-    ws.close();
-    return;
-  }
-
-  // Add client
-  const client: Client = { userId, ws };
-  clients.push(client);
-  console.log(`Client connected: ${userId}. Total clients: ${clients.length}`);
-
-  ws.on("close", () => {
-    const index = clients.findIndex((c) => c.ws === ws);
-    if (index !== -1) {
-      clients.splice(index, 1);
-      console.log(
-        `Client disconnected: ${userId}. Total clients: ${clients.length}`,
-      );
-    }
-  });
-
-  ws.on("error", (error) => {
-    console.error("WebSocket error:", error);
-  });
-});
+// WebSocket notification helpers
+// Note: The actual WebSocket server runs in server.ts on port 3000 at /ws
+// These are stub functions - actual implementation is in server.ts
 
 // Broadcast notification to specific user
 export function notifyUser(userId: string, notification: any) {
-  const userClients = clients.filter((c) => c.userId === userId);
-  userClients.forEach((client) => {
-    if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(JSON.stringify(notification));
-    }
-  });
+  console.log('Notify user:', userId, notification);
+  // Actual WebSocket broadcasting is handled in server.ts
 }
 
 // Broadcast to all users near a location
@@ -72,22 +30,12 @@ export function notifyNearbyUsers(
   radiusKm: number,
   notification: any,
 ) {
-  // For simplicity, broadcast to all clients
-  // In production, you'd filter by actual user location
-  clients.forEach((client) => {
-    if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(JSON.stringify(notification));
-    }
-  });
+  console.log('Notify nearby users:', location, radiusKm, notification);
+  // Actual WebSocket broadcasting is handled in server.ts
 }
 
 // Broadcast to all users
 export function notifyAllUsers(notification: any) {
-  clients.forEach((client) => {
-    if (client.ws.readyState === WebSocket.OPEN) {
-      client.ws.send(JSON.stringify(notification));
-    }
-  });
+  console.log('Notify all users:', notification);
+  // Actual WebSocket broadcasting is handled in server.ts
 }
-
-export default wss;
