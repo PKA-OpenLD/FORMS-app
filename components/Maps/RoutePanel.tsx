@@ -495,18 +495,65 @@ export default function RoutePanel({ map, zones, onMapClick }: RoutePanelProps) 
             <FontAwesomeIcon icon={faMapMarkerAlt} className="text-green-600 mr-2" />
             Điểm xuất phát
           </label>
-          <button
-            onClick={() => setIsSelectingOrigin(true)}
-            className={`w-full px-3 py-2 border-2 rounded-xl text-sm transition-all ${
-              isSelectingOrigin
-                ? 'border-green-500 bg-green-50 text-green-700'
-                : origin
-                ? 'border-gray-200 bg-gray-50 text-gray-900'
-                : 'border-gray-200 hover:border-green-500 text-gray-500'
-            }`}
-          >
-            {origin ? `${origin[1].toFixed(5)}, ${origin[0].toFixed(5)}` : 'Nhấn để chọn trên bản đồ'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setIsSelectingOrigin(true)}
+              className={`flex-1 px-3 py-2 border-2 rounded-xl text-sm transition-all ${
+                isSelectingOrigin
+                  ? 'border-green-500 bg-green-50 text-green-700'
+                  : origin
+                  ? 'border-gray-200 bg-gray-50 text-gray-900'
+                  : 'border-gray-200 hover:border-green-500 text-gray-500'
+              }`}
+            >
+              {origin ? `${origin[1].toFixed(5)}, ${origin[0].toFixed(5)}` : 'Nhấn để chọn trên bản đồ'}
+            </button>
+            <button
+              onClick={() => {
+                if (navigator.geolocation) {
+                  showToast('Đang lấy vị trí...', 'info');
+                  navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                      const coords: [number, number] = [position.coords.longitude, position.coords.latitude];
+                      setOrigin(coords);
+                      showToast('Đã đặt vị trí hiện tại làm điểm xuất phát', 'success');
+                      
+                      // Add marker on map
+                      if (map) {
+                        new vietmapgl.Marker({ color: '#22c55e' })
+                          .setLngLat(coords)
+                          .addTo(map);
+                        map.flyTo({ center: coords, zoom: 15 });
+                      }
+                    },
+                    (error) => {
+                      console.error('Geolocation error:', error);
+                      if (error.code === error.TIMEOUT) {
+                        showToast('Hết thời gian chờ GPS. Vui lòng thử lại.', 'error');
+                      } else if (error.code === error.PERMISSION_DENIED) {
+                        showToast('Vui lòng cho phép truy cập vị trí', 'error');
+                      } else {
+                        showToast('Không thể lấy vị trí hiện tại', 'error');
+                      }
+                    },
+                    { 
+                      enableHighAccuracy: true,
+                      timeout: 10000,
+                      maximumAge: 0
+                    }
+                  );
+                } else {
+                  showToast('Trình duyệt không hỗ trợ GPS', 'error');
+                }
+              }}
+              className="px-3 py-2 border-2 border-green-500 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all"
+              title="Sử dụng vị trí hiện tại"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"/>
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Destination */}
