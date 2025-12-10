@@ -159,38 +159,61 @@ const signalingMessages = new Map<string, any[]>();
 async function handleSignaling(ws: ServerWebSocket<WebSocketData>, data: any) {
   const { type, cameraId, peerId, sdp, candidate } = data;
   
-  // Store signaling messages for camera peers
-  if (type === 'offer' || type === 'answer') {
-    if (!signalingMessages.has(cameraId)) {
-      signalingMessages.set(cameraId, []);
-    }
-    signalingMessages.get(cameraId)?.push({ type, sdp, peerId, timestamp: Date.now() });
-    
-    // Forward to camera peer if connected
-    const cameraWs = Array.from(connections.values()).find(
-      (c) => c.data.type === 'camera' && c.data.cameraId === cameraId
-    );
+  // Find camera AI server connection (registered on signaling with cameraId)
+  const cameraWs = Array.from(connections.values()).find(
+    (c) => c.data.type === 'signaling' && c.data.userId?.startsWith('camera_')
+  );
+  
+  // Find frontend user connection (also on signaling)
+  const userWs = Array.from(connections.values()).find(
+    (c) => c.data.type === 'signaling' && c.data.userId && !c.data.userId.startsWith('camera_')
+  );
+  
+  if (type === 'offer') {
+    // Frontend sent offer -> forward to camera AI server
+    console.log(`Forwarding offer from frontend to camera AI server for camera ${cameraId}`);
     
     if (cameraWs) {
-      cameraWs.send(JSON.stringify({ type, peerId, sdp, candidate }));
+      cameraWs.send(JSON.stringify({ type: 'offer', cameraId, peerId, sdp }));
+    } else {
+      console.warn(`Camera AI server not connected for camera ${cameraId}`);
     }
     
-    // Update camera WebRTC state
     await updateCameraWebRTC(cameraId, { signalingState: 'connecting' });
   }
   
-  // ICE candidates
-  if (type === 'ice-candidate') {
-    const cameraWs = Array.from(connections.values()).find(
-      (c) => c.data.type === 'camera' && c.data.cameraId === cameraId
-    );
+  if (type === 'answer') {
+    // Camera AI server sent answer -> forward to frontend
+    console.log(`Forwarding answer from camera AI server to frontend for camera ${cameraId}`);
     
-    if (cameraWs) {
-      cameraWs.send(JSON.stringify({ type: 'ice-candidate', candidate, peerId }));
+    if (userWs) {
+      userWs.send(JSON.stringify({ type: 'answer', cameraId, peerId, sdp }));
+    } else {
+      console.warn(`Frontend not connected for camera ${cameraId}`);
     }
   }
   
-  // Connection established
+  if (type === 'ice-candidate') {
+    // Forward ICE candidates bidirectionally
+    if (ws.data.userId?.startsWith('camera_')) {
+      // From camera -> to frontend
+      if (userWs) {
+        userWs.send(JSON.stringify({ type: 'ice-candidate', candidate, peerId, cameraId }));
+      }
+    } else {
+      // From frontend -> to camera
+      if (cameraWs) {
+        cameraWs.send(JSON.stringify({ type: 'ice-candidate', candidate, peerId, cameraId }));
+      }
+    }
+  }
+  
+  if (type === 'register') {
+    // Camera AI server registering
+    console.log(`Camera AI server registered: ${cameraId}`);
+    ws.data.userId = `camera_${cameraId}`;
+  }
+  
   if (type === 'connected') {
     await updateCameraWebRTC(cameraId, { 
       signalingState: 'connected',
