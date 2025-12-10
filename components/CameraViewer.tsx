@@ -208,6 +208,9 @@ export default function CameraViewer({ cameraId, cameraName, onClose }: CameraVi
         }
       };
 
+      // Add transceiver to receive video
+      pc.addTransceiver('video', { direction: 'recvonly' });
+
       // Create offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
