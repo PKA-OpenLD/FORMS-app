@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getReportById } from '@/lib/db/user-reports';
+import { getReportById, updateReport } from '@/lib/db/user-reports';
+import { createZone } from '@/lib/db/zones';
 import { getCurrentUser } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
@@ -40,8 +41,8 @@ export async function POST(request: NextRequest) {
     // Create zone from report
     const zoneData = {
       id: `zone-admin-${Date.now()}`,
-      type: report.type === 'flood' ? 'flood' : 'outage',
-      shape: report.coordinates && report.coordinates.length > 1 ? 'line' : 'circle',
+      type: report.type === 'flood' ? 'flood' as const : 'outage' as const,
+      shape: report.coordinates && report.coordinates.length > 1 ? 'line' as const : 'circle' as const,
       center: report.location,
       coordinates: report.coordinates,
       radius: 500,
@@ -50,17 +51,12 @@ export async function POST(request: NextRequest) {
       description: `Được phê duyệt bởi quản trị viên`
     };
 
-    await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002'}/api/zones`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(zoneData)
-    });
+    await createZone(zoneData);
 
     // Mark report as zone created and admin approved
-    await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002'}/api/user-reports/${reportId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ zoneCreated: true, adminApproved: true })
+    await updateReport(reportId, { 
+      zoneCreated: true, 
+      adminApproved: true 
     });
 
     return NextResponse.json({

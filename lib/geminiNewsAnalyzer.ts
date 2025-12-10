@@ -45,12 +45,12 @@ export async function analyzeNewsWithGemini(
   // Initialize Gemini AI
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ 
-    model: 'gemini-2.5-flash',
+    model: 'gemini-2.5-pro',
     generationConfig: {
       temperature: 0.4,
       topK: 32,
       topP: 1,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 20480,
       responseMimeType: 'application/json', // Force JSON response
     }
   });
@@ -65,7 +65,7 @@ Description: ${article.description}
     })
     .join('\n\n');
 
-  const prompt = `You are a traffic analysis AI for Hanoi, Vietnam. Analyze Vietnamese news articles and extract UP TO 2 MOST CRITICAL CURRENT traffic issues.
+  const prompt = `You are a traffic analysis AI for Hanoi, Vietnam. Analyze Vietnamese news articles and extract ALL traffic issues and incidents mentioned.
 
 CRITICAL LOCATION REQUIREMENTS:
 - Use EXACT street names as written in the article (e.g., "Phạm Hùng", "Nguyễn Trãi", "Giải Phóng")
@@ -79,33 +79,39 @@ CRITICAL LOCATION REQUIREMENTS:
   * "Cầu Nhật Tân"
   * "Đường Giải Phóng, quận Hoàng Mai"
 
-ONLY extract issues with:
-- Actual traffic disruptions (accidents, flooding, road closures)
-- CURRENT/ONGOING problems (not future plans or past events)
+Extract issues including:
+- Traffic accidents (current or recent)
+- Flooding and waterlogging
+- Road closures and construction
+- Heavy congestion
+- Traffic jams and slow-moving traffic
+- Road damage and potholes
+- Any other traffic-related incidents
+
+Include recent events (within last few days) and ongoing situations.
 
 Ignore:
-- General traffic reports without specific issues
-- Safety tips, announcements
-- Future construction plans
-- Historical incidents
+- Safety tips without specific incidents
+- General traffic advice
+- Unrelated news
 
 Return JSON:
 {
   "issues": [
     {
       "location": "EXACT street/intersection name from article with proper Vietnamese diacritics",
-      "description": "brief current issue description",
+      "description": "brief issue description",
       "severity": "low|medium|high",
       "type": "flood|accident|congestion|construction|other"
     }
   ],
-  "summary": "brief summary"
+  "summary": "brief summary of overall traffic situation"
 }
 
 If NO issues found:
 {
   "issues": [],
-  "summary": "No significant traffic issues detected in current news"
+  "summary": "No traffic issues detected in analyzed articles"
 }
 
 NEWS ARTICLES:
@@ -113,14 +119,34 @@ ${newsContent}
 
 Return ONLY the JSON object, no other text or explanation.`;
 
+  console.log('📤 Gemini AI Request:');
+  console.log('═'.repeat(80));
+  console.log('Prompt length:', prompt.length, 'characters');
+  console.log('Number of articles:', newsArticles.length);
+  console.log('First 500 chars of prompt:');
+  console.log(prompt.substring(0, 500) + '...');
+  console.log('\n📰 RSS Articles Being Analyzed:');
+  newsArticles.forEach((article, idx) => {
+    console.log(`\n[${idx + 1}] ${article.title}`);
+    console.log(`    Description: ${article.description.substring(0, 150)}${article.description.length > 150 ? '...' : ''}`);
+  });
+  console.log('═'.repeat(80));
+
   try {
     // Generate content with JSON schema enforcement
     const result = await model.generateContent(prompt);
     const response = result.response;
     const text = response.text();
     
+    console.log('🤖 Gemini AI Raw Response:');
+    console.log('─'.repeat(80));
+    console.log(text);
+    console.log('─'.repeat(80));
+    
     // Parse the JSON response (already guaranteed to be valid JSON by responseMimeType)
     const parsedResult = JSON.parse(text);
+
+    console.log('📊 Parsed Result:', JSON.stringify(parsedResult, null, 2));
 
     return {
       issues: parsedResult.issues || [],

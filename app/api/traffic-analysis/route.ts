@@ -15,6 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import Parser from 'rss-parser';
 import { analyzeNewsAndFindRoads } from '@/lib/geminiNewsAnalyzer';
 import { getCachedAnalysis, saveAnalysis, cleanExpiredAnalyses } from '@/lib/db/ai-traffic-analysis';
 
@@ -90,18 +91,11 @@ export async function GET(request: NextRequest) {
 
     console.log('Cache miss or force refresh - calling Gemini AI');
 
-    // Fetch latest traffic news from RSS
-    const rssResponse = await fetch(
-      'https://api.rss2json.com/v1/api.json?rss_url=https://vnexpress.net/rss/giao-thong.rss'
-    );
+    // Fetch latest traffic news from RSS using rss-parser
+    const parser = new Parser();
+    const feed = await parser.parseURL('https://vnexpress.net/rss/giao-thong.rss');
     
-    if (!rssResponse.ok) {
-      throw new Error('Failed to fetch news RSS');
-    }
-
-    const rssData = await rssResponse.json();
-    
-    if (!rssData.items || rssData.items.length === 0) {
+    if (!feed.items || feed.items.length === 0) {
       return NextResponse.json({
         success: true,
         cached: false,
@@ -112,12 +106,14 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Take top 50 articles for analysis
-    const articles = rssData.items.slice(0, 50).map((item: any) => ({
-      title: item.title,
-      description: item.description || item.content || '',
-      link: item.link,
+    // Take top 30 articles for analysis (balance between coverage and API limits)
+    const articles = feed.items.slice(0, 30).map((item) => ({
+      title: item.title || '',
+      description: item.contentSnippet || item.content || item.description || '',
+      link: item.link || '',
     }));
+
+    console.log(`📊 Analyzing ${articles.length} articles from RSS feed (total available: ${feed.items.length})`);
 
     // Analyze with Gemini
     const result = await analyzeNewsAndFindRoads(articles);

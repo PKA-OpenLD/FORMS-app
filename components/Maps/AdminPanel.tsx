@@ -84,6 +84,9 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
     const [userReports, setUserReports] = useState<UserReport[]>([]);
     const [cameras, setCameras] = useState<any[]>([]);
     const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+    const [reportSearchQuery, setReportSearchQuery] = useState('');
+    const [reportFilterUser, setReportFilterUser] = useState('all');
+    const [reportFilterStatus, setReportFilterStatus] = useState<'all' | 'new' | 'investigating' | 'resolved'>('all');
     const [isAddingSensor, setIsAddingSensor] = useState(false);
     const [isAddingRule, setIsAddingRule] = useState(false);
     const [newSensor, setNewSensor] = useState({
@@ -268,6 +271,33 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
             .then(() => setUserReports(prev => prev.filter(r => r.id !== id)))
             .catch(err => console.error('Failed to delete report:', err));
     };
+
+    // Get unique users from reports
+    const uniqueUsers = Array.from(new Set(userReports.map(r => r.reporterName).filter(Boolean))) as string[];
+
+    // Filter reports based on search and filters
+    const filteredReports = userReports.filter(report => {
+        // Search filter
+        if (reportSearchQuery) {
+            const query = reportSearchQuery.toLowerCase();
+            const matchDescription = report.description.toLowerCase().includes(query);
+            const matchType = report.type.toLowerCase().includes(query);
+            const matchReporter = report.reporterName?.toLowerCase().includes(query);
+            if (!matchDescription && !matchType && !matchReporter) return false;
+        }
+
+        // User filter
+        if (reportFilterUser !== 'all' && report.reporterName !== reportFilterUser) {
+            return false;
+        }
+
+        // Status filter
+        if (reportFilterStatus !== 'all' && report.status !== reportFilterStatus) {
+            return false;
+        }
+
+        return true;
+    });
 
     const handleReportClick = (report: UserReport) => {
         if (!map) return;
@@ -558,7 +588,7 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                         {activeTab === 'reports' && (
                             <>
                                 <div className="mb-4">
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between mb-3">
                                         <h3 className="text-lg font-bold text-gray-800">
                                             📢 Báo Cáo Từ Cộng Đồng
                                         </h3>
@@ -574,17 +604,73 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                                             </span>
                                         </div>
                                     </div>
+
+                                    {/* Search and Filters */}
+                                    <div className="space-y-2">
+                                        <input
+                                            type="text"
+                                            placeholder="🔍 Tìm kiếm báo cáo..."
+                                            value={reportSearchQuery}
+                                            onChange={(e) => setReportSearchQuery(e.target.value)}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-400 text-gray-800 placeholder-gray-400"
+                                        />
+                                        <div className="flex gap-2">
+                                            <select
+                                                value={reportFilterUser}
+                                                onChange={(e) => setReportFilterUser(e.target.value)}
+                                                className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-400 text-gray-800 text-sm"
+                                            >
+                                                <option value="all">👤 Tất cả người dùng</option>
+                                                {uniqueUsers.map(user => (
+                                                    <option key={user} value={user}>{user}</option>
+                                                ))}
+                                            </select>
+                                            <select
+                                                value={reportFilterStatus}
+                                                onChange={(e) => setReportFilterStatus(e.target.value as any)}
+                                                className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-400 text-gray-800 text-sm"
+                                            >
+                                                <option value="all">📋 Tất cả trạng thái</option>
+                                                <option value="new">🆕 Mới</option>
+                                                <option value="investigating">🔍 Đang xử lý</option>
+                                                <option value="resolved">✅ Đã xử lý</option>
+                                            </select>
+                                        </div>
+                                        {(reportSearchQuery || reportFilterUser !== 'all' || reportFilterStatus !== 'all') && (
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="text-gray-600">
+                                                    Hiển thị {filteredReports.length} / {userReports.length} báo cáo
+                                                </span>
+                                                <button
+                                                    onClick={() => {
+                                                        setReportSearchQuery('');
+                                                        setReportFilterUser('all');
+                                                        setReportFilterStatus('all');
+                                                    }}
+                                                    className="text-blue-600 hover:text-blue-700 font-medium"
+                                                >
+                                                    Xóa bộ lọc
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
 
-                                <div className="space-y-3 max-h-[calc(85vh-200px)] overflow-y-auto pr-2">
+                                <div className="space-y-3 max-h-[calc(85vh-300px)] overflow-y-auto pr-2">
                                     {userReports.length === 0 ? (
                                         <div className="text-center py-12 text-gray-400">
                                             <div className="text-5xl mb-3">📭</div>
                                             <p className="font-medium">Chưa có báo cáo nào</p>
                                             <p className="text-sm mt-1">Báo cáo từ cộng đồng sẽ xuất hiện ở đây</p>
                                         </div>
+                                    ) : filteredReports.length === 0 ? (
+                                        <div className="text-center py-12 text-gray-400">
+                                            <div className="text-5xl mb-3">🔍</div>
+                                            <p className="font-medium">Không tìm thấy báo cáo</p>
+                                            <p className="text-sm mt-1">Thử điều chỉnh bộ lọc của bạn</p>
+                                        </div>
                                     ) : (
-                                        userReports
+                                        filteredReports
                                             .sort((a, b) => b.createdAt - a.createdAt)
                                             .map(report => (
                                                 <div 

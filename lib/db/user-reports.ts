@@ -182,3 +182,12 @@ export async function deleteUserReport(reportId: string): Promise<void> {
     const db = await getDatabase();
     await db.collection(COLLECTION).deleteOne({ id: reportId });
 }
+
+// Update report fields
+export async function updateReport(reportId: string, updates: Partial<UserReport>): Promise<void> {
+    const db = await getDatabase();
+    await db.collection(COLLECTION).updateOne(
+        { id: reportId },
+        { $set: { ...updates, updatedAt: Date.now() } }
+    );
+}

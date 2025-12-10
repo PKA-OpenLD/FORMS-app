@@ -15,7 +15,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { voteOnReport, removeVote, getReportById } from '@/lib/db/user-reports';
+import { voteOnReport, getReportById, updateReport, removeVote } from '@/lib/db/user-reports';
+import { createZone } from '@/lib/db/zones';
 import { getCurrentUser } from '@/lib/auth';
 
 export async function POST(request: NextRequest) {
@@ -59,43 +60,23 @@ export async function POST(request: NextRequest) {
           // Create zone from report
           const zoneData = {
             id: `zone-auto-${Date.now()}`,
-            type: report.type === 'flood' ? 'flood' : 'outage',
-            shape: report.coordinates && report.coordinates.length > 1 ? 'line' : 'circle',
+            type: report.type === 'flood' ? 'flood' as const : 'outage' as const,
+            shape: report.coordinates && report.coordinates.length > 1 ? 'line' as const : 'circle' as const,
             center: report.location,
             coordinates: report.coordinates,
             radius: 500, // 500m radius for circle zones
             riskLevel: report.severity === 'high' ? 9 : report.severity === 'medium' ? 6 : 4,
             title: `🔥 Khu vực phổ biến: ${report.description.substring(0, 50)}`,
-            description: `Tự động tạo từ báo cáo có ${result.voteScore} upvotes`,
-            autoCreated: true,
-            sourceReportId: reportId
+            description: `Tự động tạo từ báo cáo có ${result.voteScore} upvotes`
           };
 
-          await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002'}/api/zones`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(zoneData)
-          });
+          await createZone(zoneData);
 
           // Mark report as having created a zone
-          await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002'}/api/user-reports/${reportId}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ zoneCreated: true })
-          });
+          await updateReport(reportId, { zoneCreated: true });
 
-          // Send notifications to nearby users
-          await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002'}/api/notifications/zone-created`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              zoneId: zoneData.id,
-              location: report.location,
-              type: report.type,
-              severity: report.severity,
-              description: report.description
-            })
-          }).catch(err => console.error('Failed to send notifications:', err));
+          // TODO: Send notifications to nearby users via WebSocket
+          // This should be handled through the WebSocket server
         } catch (error) {
           console.error('Failed to auto-create zone:', error);
         }
