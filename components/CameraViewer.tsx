@@ -130,7 +130,12 @@ export default function CameraViewer({ cameraId, cameraName, onClose }: CameraVi
       setError(null);
 
       // Create WebSocket for signaling
-      const ws = new WebSocket(`ws://localhost:3001/signaling?userId=${Math.random()}`);
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001';
+      const protocol = wsUrl.startsWith('wss://') ? 'wss' : 'ws';
+      const host = wsUrl.replace(/^wss?:\/\//, '');
+      const signalingUrl = `${protocol}://${host}/signaling?userId=${Math.random()}`;
+      
+      const ws = new WebSocket(signalingUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
