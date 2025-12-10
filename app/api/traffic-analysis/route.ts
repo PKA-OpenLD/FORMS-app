@@ -112,8 +112,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Take top 10 articles for analysis
-    const articles = rssData.items.slice(0, 10).map((item: any) => ({
+    // Take top 50 articles for analysis
+    const articles = rssData.items.slice(0, 50).map((item: any) => ({
       title: item.title,
       description: item.description || item.content || '',
       link: item.link,

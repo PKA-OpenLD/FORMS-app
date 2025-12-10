@@ -83,6 +83,7 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
     const [sensorRules, setSensorRules] = useState<SensorRule[]>([]);
     const [userReports, setUserReports] = useState<UserReport[]>([]);
     const [cameras, setCameras] = useState<any[]>([]);
+    const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
     const [isAddingSensor, setIsAddingSensor] = useState(false);
     const [isAddingRule, setIsAddingRule] = useState(false);
     const [newSensor, setNewSensor] = useState({
@@ -266,6 +267,97 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
         fetch(`/api/user-reports?id=${id}`, { method: 'DELETE' })
             .then(() => setUserReports(prev => prev.filter(r => r.id !== id)))
             .catch(err => console.error('Failed to delete report:', err));
+    };
+
+    const handleReportClick = (report: UserReport) => {
+        if (!map) return;
+
+        // Toggle selection
+        if (selectedReportId === report.id) {
+            setSelectedReportId(null);
+            // Remove highlight layer
+            if (map.getLayer('admin-selected-report-highlight')) {
+                map.removeLayer('admin-selected-report-highlight');
+            }
+            if (map.getSource('admin-selected-report-highlight')) {
+                map.removeSource('admin-selected-report-highlight');
+            }
+            return;
+        }
+
+        setSelectedReportId(report.id);
+
+        // Remove old highlight
+        if (map.getLayer('admin-selected-report-highlight')) {
+            map.removeLayer('admin-selected-report-highlight');
+        }
+        if (map.getSource('admin-selected-report-highlight')) {
+            map.removeSource('admin-selected-report-highlight');
+        }
+
+        // If report has coordinates (line), show the line
+        if (report.coordinates && report.coordinates.length > 1) {
+            map.addSource('admin-selected-report-highlight', {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: report.coordinates
+                    }
+                }
+            });
+
+            map.addLayer({
+                id: 'admin-selected-report-highlight',
+                type: 'line',
+                source: 'admin-selected-report-highlight',
+                paint: {
+                    'line-color': report.type === 'flood' ? '#06b6d4' : report.type === 'outage' ? '#f97316' : '#8b5cf6',
+                    'line-width': 8,
+                    'line-opacity': 0.9
+                }
+            });
+
+            // Fit map to line bounds with padding
+            const coords = report.coordinates;
+            const bounds: [[number, number], [number, number]] = [
+                [
+                    Math.min(...coords.map(c => c[0])),
+                    Math.min(...coords.map(c => c[1]))
+                ],
+                [
+                    Math.max(...coords.map(c => c[0])),
+                    Math.max(...coords.map(c => c[1]))
+                ]
+            ];
+            
+            map.fitBounds(bounds, { 
+                padding: { top: 150, bottom: 150, left: 450, right: 150 },
+                maxZoom: 14,
+                duration: 2000,
+                easing: (t: number) => {
+                    // Smooth ease-in-out curve
+                    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+                },
+                essential: true
+            });
+        } else {
+            // Just fly to the point with smooth animation
+            map.flyTo({ 
+                center: report.location, 
+                zoom: 14,
+                duration: 2000,
+                easing: (t: number) => {
+                    // Smooth ease-in-out curve
+                    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+                },
+                essential: true,
+                curve: 1.42,
+                speed: 1.2
+            });
+        }
     };
 
     return (
@@ -497,11 +589,15 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                                             .map(report => (
                                                 <div 
                                                     key={report.id} 
-                                                    className={`bg-white border-2 rounded-xl p-4 transition-all hover:shadow-lg group ${
-                                                        report.status === 'new' ? 'border-yellow-300 bg-yellow-50' :
-                                                        report.status === 'investigating' ? 'border-blue-300 bg-blue-50' :
-                                                        'border-green-300 bg-green-50'
+                                                    className={`border-2 rounded-xl p-4 transition-all cursor-pointer group ${
+                                                        selectedReportId === report.id
+                                                            ? 'bg-cyan-50 border-2 border-cyan-400 shadow-lg'
+                                                            : report.status === 'new' ? 'border-yellow-300 bg-yellow-50 hover:shadow-lg' :
+                                                            report.status === 'investigating' ? 'border-blue-300 bg-blue-50 hover:shadow-lg' :
+                                                            'border-green-300 bg-green-50 hover:shadow-lg'
                                                     }`}
+                                                    onClick={() => handleReportClick(report)}
+                                                    title={report.coordinates && report.coordinates.length > 1 ? 'Click to show route on map' : 'Click to view location'}
                                                 >
                                                     <div className="flex justify-between items-start mb-3">
                                                         <div className="flex items-center gap-2">
@@ -531,7 +627,10 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                                                             </div>
                                                         </div>
                                                         <button
-                                                            onClick={() => deleteReport(report.id)}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                deleteReport(report.id);
+                                                            }}
                                                             className="text-gray-400 hover:text-red-600 hover:bg-red-100 p-2 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                                                             title="Xóa báo cáo"
                                                         >
@@ -564,7 +663,10 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
 
                                                     <div className="flex gap-2 pl-9">
                                                         <button
-                                                            onClick={() => updateReportStatus(report.id, 'new')}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                updateReportStatus(report.id, 'new');
+                                                            }}
                                                             disabled={report.status === 'new'}
                                                             className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
                                                                 report.status === 'new'
@@ -575,7 +677,10 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                                                             📝 Mới
                                                         </button>
                                                         <button
-                                                            onClick={() => updateReportStatus(report.id, 'investigating')}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                updateReportStatus(report.id, 'investigating');
+                                                            }}
                                                             disabled={report.status === 'investigating'}
                                                             className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
                                                                 report.status === 'investigating'
@@ -586,7 +691,10 @@ export default function AdminPanel({ map, onDrawZone, onClearZones, onAddSensor,
                                                             🔍 Đang xử lý
                                                         </button>
                                                         <button
-                                                            onClick={() => updateReportStatus(report.id, 'resolved')}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                updateReportStatus(report.id, 'resolved');
+                                                            }}
                                                             disabled={report.status === 'resolved'}
                                                             className={`flex-1 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
                                                                 report.status === 'resolved'

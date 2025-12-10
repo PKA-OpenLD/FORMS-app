@@ -80,8 +80,67 @@ export default function UserReportButton({ map }: UserReportButtonProps) {
         map.getCanvas().style.cursor = 'crosshair';
 
         const points: number[][] = [];
-        const markers: any[] = [];
         const layerId = `temp-line-${Date.now()}`;
+        const markersSourceId = `temp-markers-${Date.now()}`;
+
+        // Initialize marker source and layers
+        if (!map.getSource(markersSourceId)) {
+            map.addSource(markersSourceId, {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: []
+                }
+            });
+
+            map.addLayer({
+                id: `${markersSourceId}-circle`,
+                type: 'circle',
+                source: markersSourceId,
+                paint: {
+                    'circle-radius': 8,
+                    'circle-color': '#ffffff',
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ef4444'
+                }
+            });
+
+            map.addLayer({
+                id: `${markersSourceId}-label`,
+                type: 'symbol',
+                source: markersSourceId,
+                layout: {
+                    'text-field': ['get', 'label'],
+                    'text-size': 12,
+                    'text-offset': [0, -1.5],
+                    'text-anchor': 'top'
+                },
+                paint: {
+                    'text-color': '#000000',
+                    'text-halo-color': '#ffffff',
+                    'text-halo-width': 2
+                }
+            });
+        }
+
+        const updateMarkers = () => {
+            const markerSource = map.getSource(markersSourceId) as any;
+            if (markerSource) {
+                markerSource.setData({
+                    type: 'FeatureCollection',
+                    features: points.map((point, index) => ({
+                        type: 'Feature',
+                        geometry: {
+                            type: 'Point',
+                            coordinates: point
+                        },
+                        properties: {
+                            label: index === 0 ? '🟢 Bắt đầu' : index === points.length - 1 ? '🔴 Kết thúc' : `${index + 1}`
+                        }
+                    }))
+                });
+            }
+        };
 
         const updateLine = () => {
             if (points.length < 2) return;
@@ -122,13 +181,8 @@ export default function UserReportButton({ map }: UserReportButtonProps) {
             
             points.push([lng, lat]);
 
-            // Add marker for this point
-            const marker = new vietmapgl.Marker({ color: '#ef4444' })
-                .setLngLat([lng, lat])
-                .addTo(map);
-            
-            markers.push(marker);
-            setTempMarkers(markers);
+            // Update markers
+            updateMarkers();
 
             // Update line if we have multiple points
             if (points.length >= 2) {
@@ -150,50 +204,30 @@ export default function UserReportButton({ map }: UserReportButtonProps) {
             }
         };
 
-        const handleDblClick = (e: any) => {
-            e.preventDefault();
-            finishSelection();
-        };
-
-        const finishSelection = () => {
-            if (points.length === 0) {
-                showToast('Vui lòng chọn ít nhất một điểm', 'warning');
-                return;
-            }
-
+        const handleFinishSelection = () => {
             setIsSelectingLocation(false);
             map.getCanvas().style.cursor = '';
             map.off('click', handleMapClick);
-            map.off('dblclick', handleDblClick);
             window.removeEventListener('keydown', handleKeyPress);
+            
+            // Clean up marker layers
+            if (map.getLayer(`${markersSourceId}-circle`)) map.removeLayer(`${markersSourceId}-circle`);
+            if (map.getLayer(`${markersSourceId}-label`)) map.removeLayer(`${markersSourceId}-label`);
+            if (map.getSource(markersSourceId)) map.removeSource(markersSourceId);
         };
 
         const handleKeyPress = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
-                // Cancel selection
-                setIsSelectingLocation(false);
-                map.getCanvas().style.cursor = '';
-                map.off('click', handleMapClick);
-                map.off('dblclick', handleDblClick);
-                window.removeEventListener('keydown', handleKeyPress);
-                
-                // Clear markers and line
-                markers.forEach(m => m.remove());
-                setTempMarkers([]);
-                if (map.getLayer(layerId)) map.removeLayer(layerId);
-                if (map.getSource(layerId)) map.removeSource(layerId);
-                setTempLineLayer(null);
-                
+                handleFinishSelection();
+                // Clear selection
                 setFormData(prev => ({ ...prev, location: null, coordinates: null }));
-            } else if (e.key === 'Enter') {
-                // Finish selection
-                finishSelection();
+            } else if (e.key === 'Enter' && points.length > 0) {
+                handleFinishSelection();
             }
         };
 
-        window.addEventListener('keydown', handleKeyPress);
         map.on('click', handleMapClick);
-        map.on('dblclick', handleDblClick);
+        window.addEventListener('keydown', handleKeyPress);
     };
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -322,7 +356,7 @@ export default function UserReportButton({ map }: UserReportButtonProps) {
             {/* Floating Report Button */}
             <button
                 onClick={() => setIsOpen(true)}
-                className="fixed bottom-24 right-4 z-30 bg-red-500 hover:bg-red-600 text-white rounded-full p-4 shadow-2xl transition-all hover:shadow-xl"
+                className="fixed bottom-42 right-4 z-30 bg-red-500 hover:bg-red-600 text-white rounded-full p-4 shadow-2xl transition-all hover:shadow-xl"
                 title="Báo cáo sự cố"
             >
                 <FontAwesomeIcon icon={faExclamationTriangle} size="lg" />

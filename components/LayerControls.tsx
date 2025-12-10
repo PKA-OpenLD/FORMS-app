@@ -117,7 +117,7 @@ export default function LayerControls({
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed top-20 right-4 z-30 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 p-4 rounded-full shadow-2xl hover:shadow-xl transition-all"
+        className="fixed bottom-60 right-4 z-30 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 p-4 rounded-full shadow-2xl hover:shadow-xl transition-all"
         title="Lớp bản đồ"
       >
         <FontAwesomeIcon icon={faLayerGroup} size="lg" />
@@ -126,7 +126,7 @@ export default function LayerControls({
   }
 
   return (
-    <div className="fixed top-20 right-4 z-30 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-80 animate-fadeIn">
+    <div className="fixed bottom-4 right-20 z-30 bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-80 max-h-[calc(100vh-2rem)] overflow-y-auto animate-fadeIn">
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-2xl">
         <h3 className="font-bold text-lg flex items-center gap-2">
           <FontAwesomeIcon icon={faLayerGroup} />

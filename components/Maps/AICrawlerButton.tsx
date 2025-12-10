@@ -22,9 +22,10 @@ import { faRobot, faSpinner, faNewspaper, faMapMarkerAlt, faCheckCircle, faExcla
 
 interface AICrawlerButtonProps {
   onZonesCreated?: () => void;
+  onClick?: () => void;
 }
 
-export default function AICrawlerButton({ onZonesCreated }: AICrawlerButtonProps) {
+export default function AICrawlerButton({ onZonesCreated, onClick }: AICrawlerButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -61,7 +62,7 @@ export default function AICrawlerButton({ onZonesCreated }: AICrawlerButtonProps
   if (!isOpen) {
     return (
       <button
-        onClick={() => setIsOpen(true)}
+        onClick={onClick || (() => setIsOpen(true))}
         className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2 rounded-lg shadow-lg hover:from-purple-700 hover:to-indigo-700 transition-all font-semibold flex items-center gap-2"
         title="AI News Crawler"
       >

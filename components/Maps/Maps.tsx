@@ -21,7 +21,13 @@ import { useState, useEffect, useRef } from 'react';
 import AdminPanel from './AdminPanel';
 import UserReportButton from './UserReportButton';
 import WeatherPanel from './WeatherPanel';
+import SearchBox from './SearchBox';
+import RoutePanel from './RoutePanel';
+import AICrawlerButton from './AICrawlerButton';
+import CommunityFeed from './CommunityFeed';
+import LayerControls from '../LayerControls';
 import CameraViewer from '../CameraViewer';
+import AITrafficAlerts from '../AITrafficAlerts';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faMap, faCloudSun } from '@fortawesome/free-solid-svg-icons';
 
@@ -83,18 +89,94 @@ export default function Maps({ isAdmin = false }: MapsProps) {
     const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const [userReports, setUserReports] = useState<UserReport[]>([]);
     const [viewMode, setViewMode] = useState<'map' | 'weather'>('map');
+    const routeClickHandlerRef = useRef<((e: any) => void) | null>(null);
     const [cameras, setCameras] = useState<any[]>([]);
     const [selectedCamera, setSelectedCamera] = useState<any | null>(null);
     const [isDrawingCameraPath, setIsDrawingCameraPath] = useState(false);
     const [cameraPathPoints, setCameraPathPoints] = useState<[number, number][]>([]);
     const [cameraPathCallback, setCameraPathCallback] = useState<((path: [number, number][]) => void) | null>(null);
+    const [showAITrafficAlerts, setShowAITrafficAlerts] = useState(false);
+    const [layerVisibility, setLayerVisibility] = useState({
+        floodZones: true,
+        outageZones: true,
+        userReports: true,
+        safeZones: true,
+        routes: true,
+        heatmap: false,
+    });
+    const [heatmapTimeFilter, setHeatmapTimeFilter] = useState<'24h' | '7d' | '30d' | 'all'>('7d');
 
     useEffect(() => {
         setIsMounted(true);
     }, []);
 
-    // Load zones, sensors, and user reports from database on mount
-    useEffect(() => {
+    // Handle layer visibility changes
+    const handleToggleLayer = (layer: string, visible: boolean) => {
+        if (!map) return;
+
+        const layerMap: Record<string, string[]> = {
+            floodZones: ['flood-zones', 'zones-outline'],
+            outageZones: ['outage-zones', 'zones-outline'],
+            userReports: ['user-reports-circle', 'user-reports-pulse'],
+            safeZones: ['safe-zones-circle', 'safe-zones-pulse', 'safe-zones-label'],
+            routes: ['zones-lines', 'route-line', 'route-outline'],
+            heatmap: ['heatmap-layer'],
+        };
+
+        const layers = layerMap[layer] || [];
+        layers.forEach(layerId => {
+            if (map.getLayer(layerId)) {
+                map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
+            }
+        });
+
+        // Update heatmap data when toggling
+        if (layer === 'heatmap' && visible) {
+            updateHeatmapData();
+        }
+    };
+
+    // Update heatmap based on time filter
+    const updateHeatmapData = () => {
+        if (!map || !map.getSource('heatmap-source')) return;
+
+        const now = Date.now();
+        const timeFilterMs: Record<typeof heatmapTimeFilter, number> = {
+            '24h': 24 * 60 * 60 * 1000,
+            '7d': 7 * 24 * 60 * 60 * 1000,
+            '30d': 30 * 24 * 60 * 60 * 1000,
+            'all': Infinity,
+        };
+
+        const cutoffTime = now - timeFilterMs[heatmapTimeFilter];
+        const filteredReports = userReports.filter(report => report.createdAt >= cutoffTime);
+
+        // Create heatmap features with weight based on severity
+        const features = filteredReports.map(report => {
+            const weight = report.severity === 'high' ? 3 : report.severity === 'medium' ? 2 : 1;
+            return {
+                type: 'Feature' as const,
+                geometry: {
+                    type: 'Point' as const,
+                    coordinates: report.location
+                },
+                properties: {
+                    weight
+                }
+            };
+        });
+
+        const source = map.getSource('heatmap-source') as any;
+        if (source) {
+            source.setData({
+                type: 'FeatureCollection',
+                features
+            });
+        }
+    };
+
+    // Function to fetch zones from API
+    const fetchZones = () => {
         fetch('/api/zones')
             .then(res => res.json())
             .then(data => {
@@ -103,6 +185,42 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 }
             })
             .catch(err => console.error('Failed to load zones:', err));
+    };
+
+    // Load safe zones on map
+    useEffect(() => {
+        if (!map) return;
+
+        import('@/lib/safeZones').then(({ safeZones }) => {
+            const features = safeZones.map(zone => ({
+                type: 'Feature' as const,
+                geometry: {
+                    type: 'Point' as const,
+                    coordinates: zone.location
+                },
+                properties: {
+                    id: zone.id,
+                    name: zone.name,
+                    type: zone.type,
+                    address: zone.address,
+                    capacity: zone.capacity,
+                    phone: zone.phone
+                }
+            }));
+
+            const source = map.getSource('safe-zones');
+            if (source) {
+                (source as any).setData({
+                    type: 'FeatureCollection',
+                    features
+                });
+            }
+        });
+    }, [map]);
+
+    // Load zones, sensors, and user reports from database on mount
+    useEffect(() => {
+        fetchZones();
         
         fetch('/api/user-reports')
             .then(res => res.json())
@@ -122,13 +240,13 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     }
                 })
                 .catch(err => console.error('Failed to load sensors:', err));
-            
+
             // Load cameras
             fetch('/api/cameras')
                 .then(res => res.json())
                 .then(data => {
-                    if (Array.isArray(data)) {
-                        setCameras(data);
+                    if (data.cameras) {
+                        setCameras(data.cameras);
                     }
                 })
                 .catch(err => console.error('Failed to load cameras:', err));
@@ -173,8 +291,8 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     setUserReports(prev => [...prev, message.report]);
                 } else if (message.type === 'camera-update') {
                     // Update camera counts in real-time
-                    setCameras(prev => prev.map(cam => 
-                        cam.id === message.cameraId 
+                    setCameras(prev => prev.map(cam =>
+                        cam.id === message.cameraId
                             ? { ...cam, currentCounts: message.counts, stats: { ...cam.stats, lastUpdate: message.timestamp } }
                             : cam
                     ));
@@ -211,19 +329,19 @@ export default function Maps({ isAdmin = false }: MapsProps) {
         }
     }, [sensors, map, isAdmin]);
 
-    // Update map when cameras change
-    useEffect(() => {
-        if (map && isAdmin && cameras.length > 0) {
-            updateCamerasOnMap(cameras);
-        }
-    }, [cameras, map, isAdmin]);
-
     // Update map when user reports change
     useEffect(() => {
         if (map && userReports.length > 0) {
             updateUserReportsOnMap(userReports);
         }
     }, [userReports, map]);
+
+    // Update heatmap when reports or time filter changes
+    useEffect(() => {
+        if (map && map.getSource('heatmap-source')) {
+            updateHeatmapData();
+        }
+    }, [userReports, heatmapTimeFilter, map]);
 
     useEffect(() => {
         if (!isMounted || !mapContainerRef.current || map) return;
@@ -273,15 +391,6 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                         features: []
                     }
                 });
-
-                // Add source for cameras
-                mapInstance.addSource('cameras', {
-                    type: 'geojson',
-                    data: {
-                        type: 'FeatureCollection',
-                        features: []
-                    }
-                });
             }
 
             // Add source for user reports
@@ -290,6 +399,80 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 data: {
                     type: 'FeatureCollection',
                     features: []
+                }
+            });
+
+            // Add source for safe zones
+            mapInstance.addSource('safe-zones', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: []
+                }
+            });
+
+            // Add source for heatmap
+            mapInstance.addSource('heatmap-source', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: []
+                }
+            });
+
+            // Add heatmap layer (hidden by default)
+            mapInstance.addLayer({
+                id: 'heatmap-layer',
+                type: 'heatmap',
+                source: 'heatmap-source',
+                layout: {
+                    visibility: 'none'
+                },
+                paint: {
+                    // Increase weight as diameter increases
+                    'heatmap-weight': [
+                        'interpolate',
+                        ['linear'],
+                        ['get', 'weight'],
+                        0, 0,
+                        6, 1
+                    ],
+                    // Increase intensity as zoom level increases
+                    'heatmap-intensity': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        0, 1,
+                        15, 3
+                    ],
+                    // Color ramp for heatmap - blue to red
+                    'heatmap-color': [
+                        'interpolate',
+                        ['linear'],
+                        ['heatmap-density'],
+                        0, 'rgba(33,102,172,0)',
+                        0.2, 'rgb(103,169,207)',
+                        0.4, 'rgb(209,229,240)',
+                        0.6, 'rgb(253,219,199)',
+                        0.8, 'rgb(239,138,98)',
+                        1, 'rgb(178,24,43)'
+                    ],
+                    // Adjust the heatmap radius by zoom level
+                    'heatmap-radius': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        0, 2,
+                        15, 20
+                    ],
+                    // Transition from heatmap to circle layer by zoom level
+                    'heatmap-opacity': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        7, 1,
+                        15, 0.5
+                    ]
                 }
             });
 
@@ -382,121 +565,16 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                         'text-halo-width': 2
                     }
                 });
-
-                // Add camera path line layer
-                mapInstance.addLayer({
-                    id: 'cameras-path',
-                    type: 'line',
-                    source: 'cameras',
-                    paint: {
-                        'line-width': [
-                            'case',
-                            ['get', 'isCrowded'], 8,
-                            5
-                        ],
-                        'line-color': [
-                            'case',
-                            ['get', 'isCrowded'], '#ef4444', // Red when crowded
-                            ['==', ['get', 'status'], 'active'], '#10b981', // Green when active
-                            ['==', ['get', 'status'], 'error'], '#f59e0b', // Orange when error
-                            '#6b7280' // Gray when inactive
-                        ],
-                        'line-opacity': 0.8
-                    }
-                });
-
-                // Add camera start/end markers
-                mapInstance.addLayer({
-                    id: 'cameras-icon',
-                    type: 'circle',
-                    source: 'cameras',
-                    paint: {
-                        'circle-radius': 8,
-                        'circle-color': [
-                            'case',
-                            ['get', 'isCrowded'], '#ef4444',
-                            ['==', ['get', 'status'], 'active'], '#10b981',
-                            ['==', ['get', 'status'], 'error'], '#f59e0b',
-                            '#6b7280'
-                        ],
-                        'circle-stroke-width': 2,
-                        'circle-stroke-color': '#ffffff',
-                        'circle-opacity': 0.9
-                    }
-                });
-
-                // Add camera label with count
-                mapInstance.addLayer({
-                    id: 'cameras-label',
-                    type: 'symbol',
-                    source: 'cameras',
-                    layout: {
-                        'text-field': [
-                            'concat',
-                            '📹 ',
-                            ['get', 'name'],
-                            '\n',
-                            ['to-string', ['get', 'totalCount']],
-                            '/',
-                            ['to-string', ['get', 'threshold']],
-                            ' vehicles',
-                            ['case', ['get', 'isCrowded'], ' 🚨 CROWDED', '']
-                        ],
-                        'text-size': 11,
-                        'text-offset': [0, 0.5],
-                        'text-anchor': 'top',
-                        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
-                        'symbol-placement': 'line-center'
-                    },
-                    paint: {
-                        'text-color': ['case', ['get', 'isCrowded'], '#ef4444', '#000000'],
-                        'text-halo-color': '#ffffff',
-                        'text-halo-width': 2
-                    }
-                });
-
-                // Add click handler for cameras (both path and icon)
-                mapInstance.on('click', 'cameras-path', (e: any) => {
-                    if (e.features && e.features.length > 0) {
-                        const cameraId = e.features[0].properties.id;
-                        const camera = cameras.find(c => c.id === cameraId);
-                        if (camera) {
-                            setSelectedCamera(camera);
-                        }
-                    }
-                });
-
-                mapInstance.on('click', 'cameras-icon', (e: any) => {
-                    if (e.features && e.features.length > 0) {
-                        const cameraId = e.features[0].properties.id;
-                        const camera = cameras.find(c => c.id === cameraId);
-                        if (camera) {
-                            setSelectedCamera(camera);
-                        }
-                    }
-                });
-
-                // Change cursor on hover
-                mapInstance.on('mouseenter', 'cameras-path', () => {
-                    mapInstance.getCanvas().style.cursor = 'pointer';
-                });
-                mapInstance.on('mouseleave', 'cameras-path', () => {
-                    mapInstance.getCanvas().style.cursor = '';
-                });
-                
-                mapInstance.on('mouseenter', 'cameras-icon', () => {
-                    mapInstance.getCanvas().style.cursor = 'pointer';
-                });
-                mapInstance.on('mouseleave', 'cameras-icon', () => {
-                    mapInstance.getCanvas().style.cursor = '';
-                });
             }
 
-            // Add user reports layer
+            // User reports line layer removed - lines only show when selected in community feed
+
+            // Add user reports circle layer (for point reports and line endpoints)
             mapInstance.addLayer({
                 id: 'user-reports-circle',
                 type: 'circle',
                 source: 'user-reports',
+                filter: ['!=', ['get', 'isLine'], true],
                 paint: {
                     'circle-radius': [
                         'case',
@@ -521,7 +599,7 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 id: 'user-reports-pulse',
                 type: 'circle',
                 source: 'user-reports',
-                filter: ['==', ['get', 'severity'], 'high'],
+                filter: ['all', ['!=', ['get', 'isLine'], true], ['==', ['get', 'severity'], 'high']],
                 paint: {
                     'circle-radius': 20,
                     'circle-color': '#ef4444',
@@ -529,6 +607,67 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     'circle-stroke-width': 2,
                     'circle-stroke-color': '#ef4444',
                     'circle-stroke-opacity': 0.5
+                }
+            });
+
+            // Add safe zones layer
+            mapInstance.addLayer({
+                id: 'safe-zones-circle',
+                type: 'circle',
+                source: 'safe-zones',
+                paint: {
+                    'circle-radius': 12,
+                    'circle-color': [
+                        'match',
+                        ['get', 'type'],
+                        'hospital', '#ef4444',
+                        'shelter', '#3b82f6',
+                        'high_ground', '#10b981',
+                        'government', '#8b5cf6',
+                        '#6b7280'
+                    ],
+                    'circle-stroke-width': 3,
+                    'circle-stroke-color': '#ffffff',
+                    'circle-opacity': 0.8
+                }
+            });
+
+            // Add safe zones pulse
+            mapInstance.addLayer({
+                id: 'safe-zones-pulse',
+                type: 'circle',
+                source: 'safe-zones',
+                paint: {
+                    'circle-radius': 24,
+                    'circle-color': [
+                        'match',
+                        ['get', 'type'],
+                        'hospital', '#ef4444',
+                        'shelter', '#3b82f6',
+                        'high_ground', '#10b981',
+                        'government', '#8b5cf6',
+                        '#6b7280'
+                    ],
+                    'circle-opacity': 0.2
+                }
+            });
+
+            // Add safe zones label
+            mapInstance.addLayer({
+                id: 'safe-zones-label',
+                type: 'symbol',
+                source: 'safe-zones',
+                layout: {
+                    'text-field': ['get', 'name'],
+                    'text-size': 12,
+                    'text-offset': [0, 1.8],
+                    'text-anchor': 'top',
+                    'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold']
+                },
+                paint: {
+                    'text-color': '#000000',
+                    'text-halo-color': '#ffffff',
+                    'text-halo-width': 2
                 }
             });
 
@@ -604,12 +743,39 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             }, 200);
         };
 
+        const handleSafeZoneClick = (e: any) => {
+            if (!e.features || e.features.length === 0) return;
+            const feature = e.features[0];
+            const props = feature.properties;
+            
+            const popup = new vietmapgl.Popup({ offset: 25, closeButton: true, closeOnClick: false })
+                .setLngLat(e.lngLat)
+                .setHTML(`
+                    <div style="min-width: 200px;">
+                        <h3 style="font-weight: bold; margin-bottom: 8px; font-size: 14px;">${props.name}</h3>
+                        <p style="margin: 4px 0; font-size: 12px; color: #4b5563;"><strong>Loại:</strong> ${
+                            props.type === 'hospital' ? '🏥 Bệnh viện' :
+                            props.type === 'shelter' ? '🏢 Nơi trú ẩn' :
+                            props.type === 'high_ground' ? '⛰️ Vị trí cao' :
+                            props.type === 'government' ? '🏛️ Cơ quan chính phủ' : 'Khác'
+                        }</p>
+                        <p style="margin: 4px 0; font-size: 12px; color: #4b5563;"><strong>Địa chỉ:</strong> ${props.address}</p>
+                        ${props.capacity ? `<p style="margin: 4px 0; font-size: 12px; color: #4b5563;"><strong>Sức chứa:</strong> ${props.capacity} người</p>` : ''}
+                        ${props.phone ? `<p style="margin: 4px 0; font-size: 12px; color: #4b5563;"><strong>Điện thoại:</strong> ${props.phone}</p>` : ''}
+                    </div>
+                `)
+                .addTo(map);
+        };
+
         map.on('mousemove', 'flood-zones', handleFloodHover);
         map.on('mousemove', 'outage-zones', handleOutageHover);
         map.on('mousemove', 'zones-lines', handleLineHover);
         map.on('mouseleave', 'flood-zones', handleLeave);
         map.on('mouseleave', 'outage-zones', handleLeave);
         map.on('mouseleave', 'zones-lines', handleLeave);
+        map.on('click', 'safe-zones-circle', handleSafeZoneClick);
+        map.on('mouseenter', 'safe-zones-circle', () => { map.getCanvas().style.cursor = 'pointer'; });
+        map.on('mouseleave', 'safe-zones-circle', () => { map.getCanvas().style.cursor = ''; });
 
         return () => {
             map.off('mousemove', 'flood-zones', handleFloodHover);
@@ -618,6 +784,9 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             map.off('mouseleave', 'flood-zones', handleLeave);
             map.off('mouseleave', 'outage-zones', handleLeave);
             map.off('mouseleave', 'zones-lines', handleLeave);
+            map.off('click', 'safe-zones-circle', handleSafeZoneClick);
+            map.off('mouseenter', 'safe-zones-circle', () => { map.getCanvas().style.cursor = 'pointer'; });
+            map.off('mouseleave', 'safe-zones-circle', () => { map.getCanvas().style.cursor = ''; });
         };
     }, [map, zones]);
 
@@ -631,7 +800,7 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             const feature = e.features[0];
             const props = feature.properties;
             
-            const popup = new (window as any).maplibregl.Popup({ offset: 25 })
+            const popup = new vietmapgl.Popup({ offset: 25, closeButton: true, closeOnClick: false })
                 .setLngLat(feature.geometry.coordinates)
                 .setHTML(`
                     <div class="p-3 min-w-[250px]">
@@ -687,9 +856,27 @@ export default function Maps({ isAdmin = false }: MapsProps) {
         };
     }, [map, userReports]);
 
+    // Handle route point selection
+    useEffect(() => {
+        if (!map) return;
+
+        const handleClick = (e: any) => {
+            if (routeClickHandlerRef.current) {
+                routeClickHandlerRef.current(e);
+            }
+        };
+
+        map.on('click', handleClick);
+
+        return () => {
+            map.off('click', handleClick);
+        };
+    }, [map]);
+
     // Handle zone drawing and camera path drawing
     useEffect(() => {
         if (!map || (!isDrawing && !isDrawingCameraPath)) return;
+        if (isDrawing && routeClickHandlerRef.current) return;
 
         let centerPoint: number[] | null = drawingCenter;
         let currentRadius = drawingRadius;
@@ -697,7 +884,7 @@ export default function Maps({ isAdmin = false }: MapsProps) {
 
         const handleMapClick = (e: any) => {
             const { lng, lat } = e.lngLat;
-            
+
             // Handle camera path selection (same pattern as zone line drawing)
             if (isDrawingCameraPath) {
                 linePoints.push([lng, lat]);
@@ -735,7 +922,7 @@ export default function Maps({ isAdmin = false }: MapsProps) {
 
         const handleMouseMove = (e: any) => {
             const { lng, lat } = e.lngLat;
-            
+
             // Camera path preview (same as zone line)
             if (isDrawingCameraPath && linePoints.length > 0) {
                 updateLineDrawingLayer([...linePoints, [lng, lat]]);
@@ -771,22 +958,10 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     if (map) {
                         map.getCanvas().style.cursor = '';
                         map.dragRotate.enable();
-                        map.touchZoomRotate.enableRotation();
-                        if (map.getSource('drawing-temp')) {
-                            (map.getSource('drawing-temp') as any).setData({
-                                type: 'FeatureCollection',
-                                features: []
-                            });
-                        }
-                        if (map.getSource('drawing-markers')) {
-                            (map.getSource('drawing-markers') as any).setData({
-                                type: 'FeatureCollection',
-                                features: []
-                            });
-                        }
+                        map.dragPan.enable();
                     }
                 } else if (drawingShape === 'line' && linePoints.length >= 2) {
-                    // Finish zone line drawing
+                    // Finish line drawing
                     const newZone: Zone = {
                         id: `zone-${Date.now()}`,
                         type: drawingType!,
@@ -880,24 +1055,6 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             initDrawingLayers();
             updateDrawingLayer(center, radius);
         }
-
-        // Update center marker
-        const markerSource = map.getSource('drawing-markers') as any;
-        if (markerSource) {
-            markerSource.setData({
-                type: 'FeatureCollection',
-                features: [{
-                    type: 'Feature',
-                    geometry: {
-                        type: 'Point',
-                        coordinates: center
-                    },
-                    properties: {
-                        label: '🎯 Tâm'
-                    }
-                }]
-            });
-        }
     };
 
     const updateLineDrawingLayer = (points: number[][]) => {
@@ -943,8 +1100,15 @@ export default function Maps({ isAdmin = false }: MapsProps) {
     const initDrawingLayers = () => {
         if (!map || map.getSource('drawing-temp')) return;
 
-        // Main drawing layer (lines/polygons)
         map.addSource('drawing-temp', {
+            type: 'geojson',
+            data: {
+                type: 'FeatureCollection',
+                features: []
+            }
+        });
+
+        map.addSource('drawing-markers', {
             type: 'geojson',
             data: {
                 type: 'FeatureCollection',
@@ -974,15 +1138,7 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             }
         });
 
-        // Markers layer for points
-        map.addSource('drawing-markers', {
-            type: 'geojson',
-            data: {
-                type: 'FeatureCollection',
-                features: []
-            }
-        });
-
+        // Add marker circles
         map.addLayer({
             id: 'drawing-markers-circle',
             type: 'circle',
@@ -990,12 +1146,12 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             paint: {
                 'circle-radius': 8,
                 'circle-color': '#ffffff',
-                'circle-stroke-width': 3,
-                'circle-stroke-color': drawingType === 'flood' ? '#2563eb' : '#dc2626',
-                'circle-opacity': 1
+                'circle-stroke-width': 2,
+                'circle-stroke-color': '#000000'
             }
         });
 
+        // Add marker labels
         map.addLayer({
             id: 'drawing-markers-label',
             type: 'symbol',
@@ -1004,11 +1160,11 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 'text-field': ['get', 'label'],
                 'text-size': 12,
                 'text-offset': [0, -1.5],
-                'text-anchor': 'bottom'
+                'text-anchor': 'top'
             },
             paint: {
-                'text-color': '#ffffff',
-                'text-halo-color': drawingType === 'flood' ? '#2563eb' : '#dc2626',
+                'text-color': '#000000',
+                'text-halo-color': '#ffffff',
                 'text-halo-width': 2
             }
         });
@@ -1046,77 +1202,6 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             map.removeLayer('drawing-temp-fill');
             map.removeLayer('drawing-temp-line');
             map.removeSource('drawing-temp');
-        }
-        
-        if (map && map.getSource('drawing-markers')) {
-            map.removeLayer('drawing-markers-circle');
-            map.removeLayer('drawing-markers-label');
-            map.removeSource('drawing-markers');
-        }
-    };
-
-    const startCameraPathDrawing = (callback: (path: [number, number][]) => void) => {
-        setIsDrawingCameraPath(true);
-        setCameraPathPoints([]);
-        setCameraPathCallback(() => callback);
-        if (map) {
-            map.getCanvas().style.cursor = 'crosshair';
-            // Disable map rotation and pitch during drawing
-            map.dragRotate.disable();
-            map.touchZoomRotate.disableRotation();
-        }
-    };
-
-    const completeCameraPathDrawing = () => {
-        if (cameraPathPoints.length >= 2 && cameraPathCallback) {
-            cameraPathCallback(cameraPathPoints);
-        }
-        setIsDrawingCameraPath(false);
-        setCameraPathPoints([]);
-        setCameraPathCallback(null);
-        if (map) {
-            map.getCanvas().style.cursor = '';
-            // Re-enable map interactions
-            map.dragRotate.enable();
-            map.touchZoomRotate.enableRotation();
-            // Clear drawing layers
-            if (map.getSource('drawing-temp')) {
-                (map.getSource('drawing-temp') as any).setData({
-                    type: 'FeatureCollection',
-                    features: []
-                });
-            }
-            if (map.getSource('drawing-markers')) {
-                (map.getSource('drawing-markers') as any).setData({
-                    type: 'FeatureCollection',
-                    features: []
-                });
-            }
-        }
-    };
-
-    const cancelCameraPathDrawing = () => {
-        setIsDrawingCameraPath(false);
-        setCameraPathPoints([]);
-        setCameraPathCallback(null);
-        if (map) {
-            map.getCanvas().style.cursor = '';
-            // Re-enable map interactions
-            map.dragRotate.enable();
-            map.touchZoomRotate.enableRotation();
-            // Clear drawing layers
-            if (map.getSource('drawing-temp')) {
-                (map.getSource('drawing-temp') as any).setData({
-                    type: 'FeatureCollection',
-                    features: []
-                });
-            }
-            if (map.getSource('drawing-markers')) {
-                (map.getSource('drawing-markers') as any).setData({
-                    type: 'FeatureCollection',
-                    features: []
-                });
-            }
         }
     };
 
@@ -1200,13 +1285,8 @@ export default function Maps({ isAdmin = false }: MapsProps) {
     const updateUserReportsOnMap = (reportsData: UserReport[]) => {
         if (!map) return;
 
-        const features = reportsData.map(report => ({
-            type: 'Feature' as const,
-            geometry: {
-                type: 'Point' as const,
-                coordinates: report.location
-            },
-            properties: {
+        const features = reportsData.flatMap(report => {
+            const props = {
                 id: report.id,
                 type: report.type,
                 severity: report.severity,
@@ -1214,46 +1294,26 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 reporterName: report.reporterName || 'Ẩn danh',
                 status: report.status,
                 createdAt: report.createdAt
+            };
+
+            // Check if report has multiple coordinates (line report)
+            if ((report as any).coordinates && (report as any).coordinates.length > 1) {
+                // Line reports don't show on map by default - only when selected in community feed
+                return [];
             }
-        }));
 
-        const source = map.getSource('user-reports') as any;
-        if (source) {
-            source.setData({
-                type: 'FeatureCollection',
-                features
-            });
-        }
-    };
-
-    const updateCamerasOnMap = (camerasData: any[]) => {
-        if (!map || !isAdmin) return;
-
-        const features = camerasData.map(camera => {
-            const totalCount = camera.currentCounts?.total || 0;
-            const isCrowded = totalCount >= camera.threshold;
-            
-            return {
+            // Single point report
+            return [{
                 type: 'Feature' as const,
                 geometry: {
-                    type: 'LineString' as const,
-                    coordinates: camera.path // Array of [lng, lat] points
+                    type: 'Point' as const,
+                    coordinates: report.location
                 },
-                properties: {
-                    id: camera.id,
-                    name: camera.name,
-                    status: camera.status,
-                    threshold: camera.threshold,
-                    isCrowded,
-                    totalCount,
-                    carCount: camera.currentCounts?.car || 0,
-                    motorcycleCount: camera.currentCounts?.motorcycle || 0,
-                    lastUpdate: camera.stats?.lastUpdate || 0
-                }
-            };
+                properties: props
+            }];
         });
 
-        const source = map.getSource('cameras') as any;
+        const source = map.getSource('user-reports') as any;
         if (source) {
             source.setData({
                 type: 'FeatureCollection',
@@ -1354,6 +1414,71 @@ export default function Maps({ isAdmin = false }: MapsProps) {
         }
     }, [zones, map]);
 
+    const handleSelectLocation = async (refId: string, display: string) => {
+        try {
+            const apiKey = process.env.NEXT_PUBLIC_VIETMAP_API_KEY;
+            const response = await fetch(`https://maps.vietmap.vn/api/place/v4?apikey=${apiKey}&refid=${encodeURIComponent(refId)}`);
+            const data = await response.json();
+            
+            if (data && data.lat && data.lng) {
+                // Smooth animated transition to location
+                map?.flyTo({
+                    center: [data.lng, data.lat],
+                    zoom: 16,
+                    duration: 2500, // Increased duration for smoother feel
+                    essential: true, // Animation will complete even if user interacts
+                    easing: (t) => t * (2 - t) // Ease-out quadratic for smooth deceleration
+                });
+                
+                // Add a temporary marker with animation
+                const marker = new vietmapgl.Marker({ color: '#3b82f6' })
+                    .setLngLat([data.lng, data.lat])
+                    .setPopup(
+                        new vietmapgl.Popup({ offset: 25, closeButton: true, closeOnClick: false })
+                            .setHTML(`<div class="p-2"><strong>${display}</strong></div>`)
+                    )
+                    .addTo(map!);
+                
+                // Open popup after a brief delay for better UX
+                setTimeout(() => {
+                    marker.togglePopup();
+                }, 2600);
+            }
+        } catch (error) {
+            console.error('Failed to get place details:', error);
+        }
+    };
+
+    const startCameraPathDrawing = (callback: (path: [number, number][]) => void) => {
+        setIsDrawingCameraPath(true);
+        setCameraPathPoints([]);
+        setCameraPathCallback(() => callback);
+        if (map) {
+            map.getCanvas().style.cursor = 'crosshair';
+        }
+    };
+
+    const completeCameraPathDrawing = () => {
+        if (cameraPathPoints.length >= 2 && cameraPathCallback) {
+            cameraPathCallback(cameraPathPoints);
+        }
+        setIsDrawingCameraPath(false);
+        setCameraPathPoints([]);
+        setCameraPathCallback(null);
+        if (map) {
+            map.getCanvas().style.cursor = '';
+        }
+    };
+
+    const cancelCameraPathDrawing = () => {
+        setIsDrawingCameraPath(false);
+        setCameraPathPoints([]);
+        setCameraPathCallback(null);
+        if (map) {
+            map.getCanvas().style.cursor = '';
+        }
+    };
+
     if (!isMounted) {
         return <div style={{ width: '100vw', height: '100vh', backgroundColor: '#f0f0f0' }} />;
     }
@@ -1361,6 +1486,14 @@ export default function Maps({ isAdmin = false }: MapsProps) {
     return (
         <>
             <div id="map" ref={mapContainerRef} style={{ width: '100vw', height: '100vh' }} />
+            
+            {/* Search Box - Top center for all users */}
+            <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-30">
+                <SearchBox 
+                    onSelectLocation={handleSelectLocation}
+                    mapCenter={map ? [map.getCenter().lng, map.getCenter().lat] : undefined}
+                />
+            </div>
             
             {/* Hover Popup */}
             {hoveredZone && popupPosition && (
@@ -1474,8 +1607,23 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                         onCancelCameraPathDrawing={cancelCameraPathDrawing}
                         onOpenCamera={(camera) => setSelectedCamera(camera)}
                     />
+                    <div className="fixed top-4 right-4 z-[60]">
+                        <AICrawlerButton onClick={() => setShowAITrafficAlerts(true)} />
+                    </div>
+                    {showAITrafficAlerts && (
+                        <AITrafficAlerts
+                            onClose={() => setShowAITrafficAlerts(false)}
+                            onIssueClick={(issue) => {
+                                if (issue.coordinates && issue.coordinates.length > 0) {
+                                    const bounds = new vietmapgl.LngLatBounds();
+                                    issue.coordinates.forEach(coord => bounds.extend(coord as [number, number]));
+                                    map?.fitBounds(bounds, { padding: 50 });
+                                }
+                            }}
+                        />
+                    )}
                     {(isDrawing || isDrawingCameraPath) && (
-                        <div className="fixed top-4 right-4 z-50 space-y-3">
+                        <div className="fixed top-20 right-4 z-50 space-y-3">
                             {/* Main instruction card */}
                             <div className="bg-gradient-to-r from-yellow-500 to-orange-500 text-white px-6 py-4 rounded-xl shadow-2xl border-2 border-yellow-300 animate-pulse">
                                 <div className="flex items-center gap-3 mb-2">
@@ -1493,38 +1641,22 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                                                 <span className="text-lg">🖱️</span>
                                                 <span>Click để thêm điểm</span>
                                                 <span className="bg-white/20 rounded px-2 py-0.5 ml-auto">
-                                                    {cameraPathPoints.length} điểm
+                                                    {cameraPathPoints.length === 0 ? 'Bắt đầu' : `${cameraPathPoints.length} điểm`}
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-lg">✅</span>
-                                                <span>Enter để hoàn thành (tối thiểu 2 điểm)</span>
+                                                <span className="text-lg">⌨️</span>
+                                                <span>Nhấn Enter để hoàn thành</span>
                                             </div>
                                         </>
                                     ) : drawingShape === 'circle' ? (
-                                        !drawingCenter ? (
-                                            <>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-lg">🖱️</span>
-                                                    <span className="font-semibold">Bước 1/2:</span>
-                                                    <span>Click vào bản đồ để đặt tâm</span>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div className="flex items-center gap-2 mb-2">
-                                                    <span className="text-lg">✅</span>
-                                                    <span className="font-semibold">Bước 2/2:</span>
-                                                    <span>Click lần nữa để hoàn thành</span>
-                                                </div>
-                                                <div className="bg-white/20 rounded px-2 py-1 text-center font-bold">
-                                                    Bán kính: {Math.round(drawingRadius)}m
-                                                </div>
-                                            </>
-                                        )
+                                        <>
+                                            <div>🖱️ {!drawingCenter ? 'Click để đặt tâm' : `Bán kính: ${Math.round(drawingRadius)}m`}</div>
+                                            <div>🖱️ {!drawingCenter ? '' : 'Click lần nữa để hoàn thành'}</div>
+                                        </>
                                     ) : (
                                         <>
-                                            <div className="flex items-center gap-2 mb-1">
+                                            <div className="flex items-center gap-2">
                                                 <span className="text-lg">🖱️</span>
                                                 <span>Click để thêm điểm</span>
                                                 <span className="bg-white/20 rounded px-2 py-0.5 ml-auto">
@@ -1532,30 +1664,28 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                                                 </span>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-lg">✅</span>
+                                                <span className="text-lg">🖱️</span>
                                                 <span>Double-click hoặc Enter để hoàn thành</span>
                                             </div>
                                         </>
                                     )}
                                 </div>
-                            </div>
-                            
-                            {/* Quick actions */}
-                            <div className="bg-white rounded-lg shadow-xl p-3 space-y-2">
-                                <div className="text-xs text-gray-600 font-semibold mb-2">Phím tắt:</div>
-                                <div className="flex items-center gap-2 text-sm">
-                                    <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-xs font-mono">ESC</kbd>
-                                    <span className="text-gray-700">Hủy bỏ</span>
-                                </div>
-                                {((drawingShape === 'line' && drawingPoints.length >= 2) || (isDrawingCameraPath && cameraPathPoints.length >= 2)) && (
+                                <div className="mt-3 pt-3 border-t border-white/20 space-y-2">
+                                    <div className="text-xs text-white/80 font-semibold mb-2">Phím tắt:</div>
                                     <div className="flex items-center gap-2 text-sm">
-                                        <kbd className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-xs font-mono">Enter</kbd>
-                                        <span className="text-gray-700">Hoàn thành</span>
+                                        <kbd className="px-2 py-1 bg-white/20 border border-white/30 rounded text-xs font-mono">ESC</kbd>
+                                        <span>Hủy bỏ</span>
                                     </div>
-                                )}
+                                    {((drawingShape === 'line' && drawingPoints.length >= 2) || (isDrawingCameraPath && cameraPathPoints.length >= 2)) && (
+                                        <div className="flex items-center gap-2 text-sm">
+                                            <kbd className="px-2 py-1 bg-white/20 border border-white/30 rounded text-xs font-mono">Enter</kbd>
+                                            <span>Hoàn thành</span>
+                                        </div>
+                                    )}
+                                </div>
                                 <button
                                     onClick={isDrawingCameraPath ? cancelCameraPathDrawing : cancelDrawing}
-                                    className="w-full mt-2 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-semibold transition-colors"
+                                    className="w-full mt-3 px-3 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-semibold transition-colors"
                                 >
                                     ❌ Hủy Vẽ
                                 </button>
@@ -1574,6 +1704,9 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 </>
             )}
 
+            {/* Community Feed - Always visible on left for non-admin users */}
+            {!isAdmin && <CommunityFeed map={map} />}
+            
             {/* User Report Button - Always visible for all users */}
             {!isAdmin && <UserReportButton map={map} />}
 
@@ -1587,7 +1720,7 @@ export default function Maps({ isAdmin = false }: MapsProps) {
 
             {/* View Mode Switcher - Only for non-admin users */}
             {!isAdmin && (
-                <div className="fixed top-4 right-4 z-50 flex gap-2">
+                <div className="fixed top-4 left-4 z-40 flex gap-2">
                     <button
                         onClick={() => setViewMode('map')}
                         className={`px-4 py-2 rounded-lg font-semibold transition-all shadow-lg ${
@@ -1612,6 +1745,16 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     </button>
                 </div>
             )}
+
+            {/* Layer Controls */}
+            <LayerControls 
+                onToggleLayer={handleToggleLayer}
+                heatmapTimeFilter={heatmapTimeFilter}
+                onHeatmapTimeFilterChange={setHeatmapTimeFilter}
+            />
+
+            {/* Route Panel - Available for all users */}
+            {!isAdmin && <RoutePanel map={map} zones={zones} onMapClick={(handler) => { routeClickHandlerRef.current = handler; }} />}
 
             {/* Camera Viewer Modal */}
             {selectedCamera && (

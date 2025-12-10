@@ -392,7 +392,7 @@ export default function RoutePanel({ map, zones, onMapClick }: RoutePanelProps) 
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-44 right-4 z-30 bg-blue-600 text-white p-4 rounded-full shadow-2xl hover:bg-blue-700 transition-all hover:shadow-xl"
+        className="fixed bottom-24 right-4 z-30 bg-blue-600 text-white p-4 rounded-full shadow-2xl hover:bg-blue-700 transition-all hover:shadow-xl"
       >
         <FontAwesomeIcon icon={faRoute} size="lg" />
       </button>
