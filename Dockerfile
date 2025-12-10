@@ -15,8 +15,12 @@ ENV NEXT_PUBLIC_VIETMAP_API_KEY=$NEXT_PUBLIC_VIETMAP_API_KEY
 # Build Next.js application
 RUN bun run build
 
+# Copy entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Expose ports
 EXPOSE 3000
 
-# Start both Next.js (on 3002) and server.ts (on 3000) 
-CMD ["sh", "-c", "bun run start:next --port 3002 & bun run server.ts"]
+# Use entrypoint script
+ENTRYPOINT ["docker-entrypoint.sh"]
