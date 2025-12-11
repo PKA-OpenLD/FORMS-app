@@ -329,6 +329,13 @@ export default function Maps({ isAdmin = false }: MapsProps) {
         }
     }, [sensors, map, isAdmin]);
 
+    // Update map when cameras change
+    useEffect(() => {
+        if (map && isAdmin && cameras.length > 0) {
+            updateCamerasOnMap(cameras);
+        }
+    }, [cameras, map, isAdmin]);
+
     // Update map when user reports change
     useEffect(() => {
         if (map && userReports.length > 0) {
@@ -419,6 +426,27 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                     features: []
                 }
             });
+
+            // Add source for cameras (admin only)
+            if (isAdmin) {
+                // Camera lines (paths)
+                mapInstance.addSource('camera-lines', {
+                    type: 'geojson',
+                    data: {
+                        type: 'FeatureCollection',
+                        features: []
+                    }
+                });
+                
+                // Camera points (first point of path)
+                mapInstance.addSource('cameras', {
+                    type: 'geojson',
+                    data: {
+                        type: 'FeatureCollection',
+                        features: []
+                    }
+                });
+            }
 
             // Add heatmap layer (hidden by default)
             mapInstance.addLayer({
@@ -671,13 +699,59 @@ export default function Maps({ isAdmin = false }: MapsProps) {
                 }
             });
 
+            // Add camera layers for admin
+            if (isAdmin) {
+                // Camera path lines
+                mapInstance.addLayer({
+                    id: 'camera-lines',
+                    type: 'line',
+                    source: 'camera-lines',
+                    paint: {
+                        'line-color': '#8b5cf6',
+                        'line-width': 3,
+                        'line-opacity': 0.8
+                    }
+                });
+
+                mapInstance.addLayer({
+                    id: 'cameras-circle',
+                    type: 'circle',
+                    source: 'cameras',
+                    paint: {
+                        'circle-radius': 10,
+                        'circle-color': '#8b5cf6',
+                        'circle-stroke-width': 3,
+                        'circle-stroke-color': '#ffffff',
+                        'circle-opacity': 0.9
+                    }
+                });
+
+                mapInstance.addLayer({
+                    id: 'cameras-label',
+                    type: 'symbol',
+                    source: 'cameras',
+                    layout: {
+                        'text-field': ['get', 'name'],
+                        'text-size': 11,
+                        'text-offset': [0, 1.5],
+                        'text-anchor': 'top',
+                        'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold']
+                    },
+                    paint: {
+                        'text-color': '#8b5cf6',
+                        'text-halo-color': '#ffffff',
+                        'text-halo-width': 2
+                    }
+                });
+            }
+
             setMap(mapInstance);
         });
 
         return () => {
             mapInstance.remove();
         };
-    }, [isMounted]);
+    }, [isMounted, isAdmin]);
 
     // Add hover interactions
     useEffect(() => {
@@ -849,12 +923,43 @@ export default function Maps({ isAdmin = false }: MapsProps) {
         map.on('mouseenter', 'user-reports-circle', handleReportHover);
         map.on('mouseleave', 'user-reports-circle', handleReportLeave);
 
+        // Add camera click handlers for admin
+        if (isAdmin) {
+            const handleCameraClick = (e: any) => {
+                if (!e.features || e.features.length === 0) return;
+                const feature = e.features[0];
+                const cameraId = feature.properties.id;
+                const camera = cameras.find(c => c.id === cameraId);
+                if (camera) {
+                    setSelectedCamera(camera);
+                }
+            };
+
+            const handleCameraHover = () => {
+                map.getCanvas().style.cursor = 'pointer';
+            };
+
+            const handleCameraLeave = () => {
+                map.getCanvas().style.cursor = '';
+            };
+
+            map.on('click', 'cameras-circle', handleCameraClick);
+            map.on('mouseenter', 'cameras-circle', handleCameraHover);
+            map.on('mouseleave', 'cameras-circle', handleCameraLeave);
+        }
+
         return () => {
             map.off('click', 'user-reports-circle', handleReportClick);
             map.off('mouseenter', 'user-reports-circle', handleReportHover);
             map.off('mouseleave', 'user-reports-circle', handleReportLeave);
+
+            if (isAdmin) {
+                map.off('click', 'cameras-circle', () => {});
+                map.off('mouseenter', 'cameras-circle', () => {});
+                map.off('mouseleave', 'cameras-circle', () => {});
+            }
         };
-    }, [map, userReports]);
+    }, [map, userReports, isAdmin, cameras, setSelectedCamera]);
 
     // Handle route point selection
     useEffect(() => {
@@ -1278,6 +1383,58 @@ export default function Maps({ isAdmin = false }: MapsProps) {
             source.setData({
                 type: 'FeatureCollection',
                 features
+            });
+        }
+    };
+
+    const updateCamerasOnMap = (camerasData: any[]) => {
+        if (!map || !isAdmin) return;
+
+        // Create features for camera paths (lines)
+        const lineFeatures = camerasData.map(camera => ({
+            type: 'Feature' as const,
+            geometry: {
+                type: 'LineString' as const,
+                coordinates: camera.path // Array of [lng, lat] points
+            },
+            properties: {
+                id: camera.id,
+                name: camera.name,
+                status: camera.status || 'offline',
+                streamUrl: camera.streamUrl
+            }
+        }));
+
+        // Create features for camera markers (first point of path)
+        const pointFeatures = camerasData.map(camera => ({
+            type: 'Feature' as const,
+            geometry: {
+                type: 'Point' as const,
+                coordinates: camera.path[0] // First point of the path
+            },
+            properties: {
+                id: camera.id,
+                name: camera.name,
+                status: camera.status || 'offline',
+                streamUrl: camera.streamUrl
+            }
+        }));
+
+        // Update camera lines
+        const lineSource = map.getSource('camera-lines') as any;
+        if (lineSource) {
+            lineSource.setData({
+                type: 'FeatureCollection',
+                features: lineFeatures
+            });
+        }
+
+        // Update camera points
+        const pointSource = map.getSource('cameras') as any;
+        if (pointSource) {
+            pointSource.setData({
+                type: 'FeatureCollection',
+                features: pointFeatures
             });
         }
     };
